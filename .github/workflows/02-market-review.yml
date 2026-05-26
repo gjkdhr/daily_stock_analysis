@@ -24,6 +24,13 @@ jobs:
     timeout-minutes: 20
     
     steps:
+      - name: 同步上游代码
+        run: |
+          gh repo sync ${{ github.repository }} --source ${{ vars.UPSTREAM_REPO || 'ZhuLinsen/daily_stock_analysis' }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+
+
       - name: 随机延迟（避免固定时间访问）
         run: sleep $((RANDOM % 60))
       
