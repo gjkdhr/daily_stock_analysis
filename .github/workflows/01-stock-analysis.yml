@@ -3,7 +3,7 @@ name: 个股分析
 on:
   # 定时触发 - 每天北京时间 14:25 (UTC 06:25)
   schedule:
-    - cron: '25 6 * * 1-5'
+    - cron: '25 7 * * 1-5'
   
   # 手动触发
   workflow_dispatch:
