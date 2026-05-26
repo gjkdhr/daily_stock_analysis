@@ -459,7 +459,6 @@ jobs:
           retention-days: 30
       
       - name: 显示运行结果
-      - name: 显示运行结果
         if: always()
         run: |
           echo ""
