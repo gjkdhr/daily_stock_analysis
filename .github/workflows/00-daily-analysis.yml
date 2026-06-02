@@ -37,7 +37,26 @@ jobs:
       
       - name: 检出代码
         uses: actions/checkout@v5
-      
+
+      - name: 同步上游仓库
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git remote add upstream https://github.com/ZhuLinsen/daily_stock_analysis.git 2>/dev/null || true
+          git fetch upstream main
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "✅ 已是最新，无需同步"
+          else
+            echo "🔄 检测到上游更新，正在合并..."
+            if git merge upstream/main -m "🤖 Auto-sync with upstream"; then
+              echo "✅ 同步成功，推送回 fork..."
+              git push origin main
+            else
+              echo "⚠️ 合并冲突，放弃本次同步，继续使用当前代码"
+              git merge --abort
+            fi
+          fi
+
       - name: 设置 Python 环境
         uses: actions/setup-python@v6
         with:
