@@ -263,6 +263,8 @@ class PipelineMarketPhaseContextTestCase(unittest.TestCase):
         analyze_kwargs = pipeline.analyzer.analyze.call_args.kwargs
         self.assertIn("分析上下文包摘要", analyze_kwargs["analysis_context_pack_summary"])
         self.assertIn("日线: missing", analyze_kwargs["analysis_context_pack_summary"])
+        self.assertIn("盘中判断受", analyze_kwargs["analysis_context_pack_summary"])
+        self.assertIn("数据质量限制", analyze_kwargs["analysis_context_pack_summary"])
 
         save_kwargs = pipeline.db.save_analysis_history.call_args.kwargs
         self.assertTrue(save_kwargs["save_snapshot"])
@@ -350,6 +352,8 @@ class PipelineMarketPhaseContextTestCase(unittest.TestCase):
         self.assertIn("analysis_context_pack_summary", run_context)
         self.assertIn("分析上下文包摘要", run_context["analysis_context_pack_summary"])
         self.assertIn("新闻: missing", run_context["analysis_context_pack_summary"])
+        self.assertIn("盘中判断受", run_context["analysis_context_pack_summary"])
+        self.assertIn("数据质量限制", run_context["analysis_context_pack_summary"])
 
         save_kwargs = pipeline.db.save_analysis_history.call_args.kwargs
         self.assertTrue(save_kwargs["save_snapshot"])
