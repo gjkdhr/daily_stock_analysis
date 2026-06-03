@@ -3,7 +3,7 @@ import { analysisApi, DuplicateTaskError } from '../api/analysis';
 import type { ParsedApiError } from '../api/error';
 import { getParsedApiError } from '../api/error';
 import { historyApi } from '../api/history';
-import type { AnalysisReport, HistoryItem, HistoryListResponse, StockHistoryFilters, StockHistoryRange, TaskInfo } from '../types/analysis';
+import type { AnalysisReport, HistoryItem, HistoryListResponse, StockBarItem, StockHistoryFilters, StockHistoryRange, TaskInfo } from '../types/analysis';
 import { getRecentStartDate, getTodayInShanghai } from '../utils/format';
 import { isObviouslyInvalidStockQuery, looksLikeStockCode, validateStockCode } from '../utils/validation';
 
@@ -64,6 +64,8 @@ export interface StockPoolState {
   stockHistoryFilters: StockHistoryFilters;
   activeTasks: TaskInfo[];
   markdownDrawerOpen: boolean;
+  stockBarItems: StockBarItem[];
+  isLoadingStockBar: boolean;
   setQuery: (query: string) => void;
   clearError: () => void;
   clearInlineMessages: () => void;
@@ -88,6 +90,8 @@ export interface StockPoolState {
   refreshActiveTasks: () => Promise<void>;
   removeTask: (taskId: string) => void;
   resetDashboardState: () => void;
+  loadStockBar: () => Promise<void>;
+  refreshStockBar: () => Promise<void>;
 }
 
 const initialState = {
@@ -122,6 +126,8 @@ const initialState = {
   },
   activeTasks: [] as TaskInfo[],
   markdownDrawerOpen: false,
+  stockBarItems: [] as StockBarItem[],
+  isLoadingStockBar: false,
 };
 
 function buildHistoryParams(page: number) {
@@ -712,5 +718,34 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
     activeTaskLocalRevision += 1;
     dismissedTaskIds.clear();
     set({ ...initialState });
+  },
+
+  loadStockBar: async () => {
+    const state = get();
+    if (state.isLoadingStockBar) return;
+    set({ isLoadingStockBar: true });
+    try {
+      const response = await historyApi.getStockBarList({
+        startDate: getRecentStartDate(90),
+        endDate: getTodayInShanghai(),
+      });
+      set({ stockBarItems: response.items });
+    } catch {
+      // keep existing items on error
+    } finally {
+      set({ isLoadingStockBar: false });
+    }
+  },
+
+  refreshStockBar: async () => {
+    try {
+      const response = await historyApi.getStockBarList({
+        startDate: getRecentStartDate(90),
+        endDate: getTodayInShanghai(),
+      });
+      set({ stockBarItems: response.items });
+    } catch {
+      // keep existing items on error
+    }
   },
 }));

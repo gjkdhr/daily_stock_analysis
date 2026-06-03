@@ -6,6 +6,8 @@ type UseDashboardLifecycleOptions = {
   loadInitialHistory: () => Promise<void>;
   refreshHistory: (silent?: boolean) => Promise<void>;
   refreshActiveTasks: () => Promise<void>;
+  loadStockBar: () => Promise<void>;
+  refreshStockBar: () => Promise<void>;
   syncTaskCreated: (task: TaskInfo) => void;
   syncTaskUpdated: (task: TaskInfo) => void;
   syncTaskFailed: (task: TaskInfo) => void;
@@ -17,6 +19,8 @@ export function useDashboardLifecycle({
   loadInitialHistory,
   refreshHistory,
   refreshActiveTasks,
+  loadStockBar,
+  refreshStockBar,
   syncTaskCreated,
   syncTaskUpdated,
   syncTaskFailed,
@@ -31,8 +35,9 @@ export function useDashboardLifecycle({
     }
 
     void loadInitialHistory();
+    void loadStockBar();
     void refreshActiveTasks();
-  }, [enabled, loadInitialHistory, refreshActiveTasks]);
+  }, [enabled, loadInitialHistory, loadStockBar, refreshActiveTasks]);
 
   useEffect(() => {
     if (!enabled) {
@@ -41,11 +46,12 @@ export function useDashboardLifecycle({
 
     const intervalId = window.setInterval(() => {
       void refreshHistory(true);
+      void refreshStockBar();
       void refreshActiveTasks();
     }, 30_000);
 
     return () => window.clearInterval(intervalId);
-  }, [enabled, refreshHistory, refreshActiveTasks]);
+  }, [enabled, refreshHistory, refreshStockBar, refreshActiveTasks]);
 
   useEffect(() => {
     if (!enabled) {
@@ -55,13 +61,14 @@ export function useDashboardLifecycle({
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshHistory(true);
+        void refreshStockBar();
         void refreshActiveTasks();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [enabled, refreshHistory, refreshActiveTasks]);
+  }, [enabled, refreshHistory, refreshStockBar, refreshActiveTasks]);
 
   useEffect(() => {
     return () => {
@@ -89,6 +96,7 @@ export function useDashboardLifecycle({
     onTaskCompleted: (task) => {
       syncTaskUpdated(task);
       void refreshHistory(true);
+      void refreshStockBar();
       scheduleTaskRemoval(task.taskId, 2_000);
     },
     onTaskFailed: (task) => {

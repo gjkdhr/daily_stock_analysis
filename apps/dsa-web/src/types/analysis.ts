@@ -392,6 +392,25 @@ export interface HistoryPagination {
   limit: number;
 }
 
+// ============ Stock Bar Types ============
+
+export interface StockBarItem {
+  id: number;
+  stockCode: string;
+  stockName?: string;
+  reportType?: string;
+  sentimentScore?: number;
+  operationAdvice?: string;
+  analysisCount: number;
+  lastAnalysisTime?: string;
+  modelUsed?: string;
+}
+
+export interface StockBarResponse {
+  total: number;
+  items: StockBarItem[];
+}
+
 // ============ Error Types ============
 
 export interface ApiError {

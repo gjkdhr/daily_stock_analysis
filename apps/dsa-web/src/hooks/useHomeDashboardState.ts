@@ -55,6 +55,10 @@ export function useHomeDashboardState() {
       closeHistoryTrend: state.closeHistoryTrend,
       setStockHistoryRange: state.setStockHistoryRange,
       loadMoreStockHistory: state.loadMoreStockHistory,
+      stockBarItems: state.stockBarItems,
+      isLoadingStockBar: state.isLoadingStockBar,
+      loadStockBar: state.loadStockBar,
+      refreshStockBar: state.refreshStockBar,
     })),
   );
 

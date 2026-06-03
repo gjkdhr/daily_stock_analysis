@@ -23,10 +23,10 @@ vi.mock('../../api/history', () => ({
   historyApi: {
     getList: vi.fn(),
     getDetail: vi.fn(),
-    deleteRecords: vi.fn(),
     getNews: vi.fn().mockResolvedValue({ total: 0, items: [] }),
     getMarkdown: vi.fn().mockResolvedValue('# report'),
     getDiagnostics: vi.fn(),
+    getStockBarList: vi.fn().mockResolvedValue({ total: 0, items: [] }),
   },
 }));
 
@@ -46,6 +46,7 @@ vi.mock('../../api/analysis', async () => {
 vi.mock('../../api/systemConfig', () => ({
   systemConfigApi: {
     getSetupStatus: vi.fn(),
+    getWatchlist: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -224,7 +225,7 @@ describe('HomePage', () => {
     expect(await screen.findByText('开始分析')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '开始分析', level: 3 })).toBeInTheDocument();
     expect(screen.getByText('输入股票代码进行分析，或从左侧选择历史报告查看。')).toBeInTheDocument();
-    expect(screen.getByText('暂无历史分析记录')).toBeInTheDocument();
+    expect(screen.getByText('暂无个股记录')).toBeInTheDocument();
   });
 
   it('surfaces duplicate task warnings from dashboard submission', async () => {
@@ -439,41 +440,6 @@ describe('HomePage', () => {
     );
   });
 
-  it('confirms and deletes selected history from the dashboard state flow', async () => {
-    vi.mocked(historyApi.getList).mockResolvedValue({
-      total: 1,
-      page: 1,
-      limit: 20,
-      items: [historyItem],
-    });
-    vi.mocked(historyApi.getDetail).mockResolvedValue(historyReport);
-    vi.mocked(historyApi.deleteRecords).mockResolvedValue({ deleted: 1 });
-
-    useStockPoolStore.setState({
-      historyItems: [historyItem],
-      selectedHistoryIds: [1],
-      selectedReport: historyReport,
-    });
-
-    render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
-    );
-
-    fireEvent.click(await screen.findByRole('button', { name: '删除' }));
-
-    expect(
-      await screen.findByText('确认删除这条历史记录吗？删除后将不可恢复。'),
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
-
-    await waitFor(() => {
-      expect(historyApi.deleteRecords).toHaveBeenCalledWith([1]);
-    });
-  });
-
   it('opens and closes the mobile history drawer without changing dashboard styles', async () => {
     vi.mocked(historyApi.getList).mockResolvedValue({
       total: 0,
@@ -509,6 +475,22 @@ describe('HomePage', () => {
         createdAt: '2020-01-01T08:00:00Z',
       },
     };
+
+    vi.mocked(historyApi.getStockBarList).mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          id: 1,
+          stockCode: '600519',
+          stockName: '贵州茅台',
+          reportType: 'detailed',
+          sentimentScore: 58,
+          operationAdvice: '继续观察买点',
+          analysisCount: 2,
+          lastAnalysisTime: '2026-03-21T08:00:00Z',
+        },
+      ],
+    });
 
     vi.mocked(historyApi.getList).mockImplementation((params: { stockCode?: string; startDate?: string } = {}) => {
       if (!Object.prototype.hasOwnProperty.call(params, 'stockCode')) {
@@ -551,8 +533,8 @@ describe('HomePage', () => {
     await waitFor(() => {
       expect(screen.queryByText('暂无更多同股历史分析')).not.toBeInTheDocument();
     });
-    expect(screen.getByRole('button', { name: /继续观察买点/ })).toBeInTheDocument();
-    expect(screen.getByText(/共 1 次分析/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /贵州茅台/ }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/2次/)).toBeInTheDocument();
 
     const historyCalls = vi.mocked(historyApi.getList).mock.calls.filter((call) => call[0]?.stockCode === '600519');
     expect(historyCalls).toHaveLength(3);

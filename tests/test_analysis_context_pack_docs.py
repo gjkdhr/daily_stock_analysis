@@ -340,6 +340,7 @@ def test_analysis_context_pack_doc_defines_p5_data_quality_contract() -> None:
         "`details.context_snapshot`",
         "不新增 fetcher",
         "不改变 LLM 输出 JSON schema",
+        "`dashboard.phase_decision`",
     ):
         assert token in section
 
@@ -404,6 +405,7 @@ def test_analysis_context_pack_doc_updates_indexes_and_changelog() -> None:
     assert "普通分析与 Agent 运行时 Prompt 接入 AnalysisContextPack 低敏摘要" in changelog
     assert "AnalysisContextPack P4 低敏 overview 接入历史详情" in changelog
     assert "AnalysisContextPack P5 增加数据质量评分" in changelog
+    assert "#1386 P5 为个股分析报告新增 `dashboard.phase_decision`" in changelog
     assert "优化 Web 报告详情页信息层级" in changelog
 
 
@@ -421,6 +423,8 @@ def test_full_guides_clarify_pack_summary_does_not_replace_legacy_payload_channe
     assert "Web 报告页在策略点位和资讯之后默认折叠展示数据块状态" in guide
     assert "`details.context_snapshot` 会剥离顶层 `analysis_context_pack_overview`" in guide
     assert "AnalysisContextPack 数据质量评分与 Prompt 数据限制（Issue #1389 P5）" in guide
+    assert "盘中决策护栏与质量校验（Issue #1386 P5）" in guide
+    assert "`dashboard.phase_decision`" in guide
     assert "`fetch_failed`" in guide
     assert "折叠头部新增质量分/等级" in guide
     assert "`report.meta.market_phase_summary`" in guide
@@ -436,6 +440,8 @@ def test_full_guides_clarify_pack_summary_does_not_replace_legacy_payload_channe
     assert "the Web report page shows the data-block summary collapsed after Strategy and News" in guide_en
     assert "API `details.context_snapshot` strips the top-level `analysis_context_pack_overview`" in guide_en
     assert "AnalysisContextPack Data Quality Scoring and Prompt Limitations (Issue #1389 P5)" in guide_en
+    assert "Intraday Decision Guardrails and Quality Checks (Issue #1386 P5)" in guide_en
+    assert "`dashboard.phase_decision`" in guide_en
     assert "`fetch_failed`" in guide_en
     assert "adds quality score/level to the header" in guide_en
     assert "`report.meta.market_phase_summary`" in guide_en

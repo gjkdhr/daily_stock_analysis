@@ -78,6 +78,57 @@ class TestReportRenderer(unittest.TestCase):
         self.assertIsNotNone(out)
         self.assertIn("核心结论", out)
         self.assertIn("作战计划", out)
+        self.assertNotIn("盘中决策护栏", out)
+
+    def test_render_markdown_phase_decision_section(self) -> None:
+        """Markdown renders phase_decision when present."""
+        r = _make_result(
+            dashboard={
+                "core_conclusion": {"one_sentence": "等待确认"},
+                "intelligence": {"risk_alerts": []},
+                "phase_decision": {
+                    "action_window": "盘中跟踪",
+                    "immediate_action": "等待确认",
+                    "watch_conditions": ["放量突破"],
+                    "next_check_time": "14:30",
+                    "confidence_reason": "数据质量可用",
+                    "data_limitations": ["quote: stale"],
+                },
+                "battle_plan": {"sniper_points": {"stop_loss": "110"}},
+            }
+        )
+
+        out = render("markdown", [r], summary_only=False)
+
+        self.assertIsNotNone(out)
+        self.assertIn("盘中决策护栏", out)
+        self.assertIn("盘中跟踪", out)
+        self.assertIn("放量突破", out)
+        self.assertIn("quote: stale", out)
+
+    def test_render_markdown_skips_context_only_phase_decision_shape(self) -> None:
+        """Markdown skips mechanically shaped phase_decision without actionable content."""
+        r = _make_result(
+            dashboard={
+                "core_conclusion": {"one_sentence": "持有观望"},
+                "intelligence": {"risk_alerts": []},
+                "phase_decision": {
+                    "phase_context": {"phase": "intraday", "market": "cn"},
+                    "action_window": None,
+                    "immediate_action": None,
+                    "watch_conditions": [],
+                    "next_check_time": None,
+                    "confidence_reason": None,
+                    "data_limitations": [],
+                },
+                "battle_plan": {"sniper_points": {"stop_loss": "110"}},
+            }
+        )
+
+        out = render("markdown", [r], summary_only=False)
+
+        self.assertIsNotNone(out)
+        self.assertNotIn("盘中决策护栏", out)
 
     def test_render_wechat(self) -> None:
         """Wechat platform renders."""

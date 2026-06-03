@@ -11,6 +11,13 @@ import { getReportText, normalizeReportLanguage } from '../../utils/reportLangua
 interface ReportSummaryProps {
   data: AnalysisResult | AnalysisReport;
   isHistory?: boolean;
+  /** 自选相关 */
+  watchlist?: {
+    isInWatchlist: (code: string) => boolean;
+    onToggle: (code: string) => void;
+    isActioning: boolean;
+    actionMessage: string | null;
+  };
 }
 
 /**
@@ -20,6 +27,7 @@ interface ReportSummaryProps {
 export const ReportSummary: React.FC<ReportSummaryProps> = ({
   data,
   isHistory = false,
+  watchlist,
 }) => {
   // 兼容 AnalysisResult 和 AnalysisReport 两种数据格式
   const report: AnalysisReport = 'report' in data ? data.report : data;
@@ -43,6 +51,7 @@ export const ReportSummary: React.FC<ReportSummaryProps> = ({
         summary={summary}
         details={details}
         isHistory={isHistory}
+        watchlist={watchlist}
       />
 
       {/* 策略点位区 */}
