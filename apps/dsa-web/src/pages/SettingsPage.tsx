@@ -355,6 +355,9 @@ const SettingsPage: React.FC = () => {
   const SYSTEM_HIDDEN_KEYS = new Set([
     'ADMIN_AUTH_ENABLED',
   ]);
+  const DATA_SOURCE_HIDDEN_KEYS = new Set([
+    'ALPHASIFT_ENABLED',
+  ]);
   const AGENT_HIDDEN_KEYS = new Set<string>();
   const activeItems =
     activeCategory === 'ai_model'
@@ -369,6 +372,8 @@ const SettingsPage: React.FC = () => {
       })
       : activeCategory === 'system'
         ? rawActiveItems.filter((item) => !SYSTEM_HIDDEN_KEYS.has(item.key))
+      : activeCategory === 'data_source'
+        ? rawActiveItems.filter((item) => !DATA_SOURCE_HIDDEN_KEYS.has(item.key))
       : activeCategory === 'agent'
         ? rawActiveItems.filter((item) => !AGENT_HIDDEN_KEYS.has(item.key))
       : rawActiveItems;
@@ -677,7 +682,7 @@ const SettingsPage: React.FC = () => {
                       {alphasiftEnabled ? '选股已开启' : '选股未开启'}
                     </p>
                     <p className="mt-1 text-xs leading-6 text-muted-text">
-                      开启后左侧导航会显示“选股”，策略、数据处理和候选生成来自 AlphaSift，DSA 只负责调用与展示。
+                      开启后左侧导航会显示“选股”；若适配层缺失，会先尝试受控自动安装，策略和候选生成来自 AlphaSift。
                     </p>
                     <p className="mt-2 text-xs leading-6 text-amber-700 dark:text-amber-300">
                       风险提示：选股结果仅用于研究和辅助判断，不构成投资建议；市场有风险，交易决策和损益由使用者自行承担。

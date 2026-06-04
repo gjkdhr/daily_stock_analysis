@@ -159,6 +159,42 @@ class TestReportRenderer(unittest.TestCase):
         self.assertNotIn("分析模型", hidden)
         self.assertNotIn("gemini/gemini-2.5-flash", hidden)
 
+    def test_render_templates_include_public_phase_pack_excerpt(self) -> None:
+        r = _make_result()
+        r.market_phase_summary = {
+            "phase": "intraday",
+            "market": "cn",
+            "trigger_source": "api",
+            "is_partial_bar": True,
+        }
+        r.analysis_context_pack_overview = {
+            "data_quality": {
+                "level": "limited",
+                "limitations": ["quote: stale", "news: missing", "technical: fallback"],
+            }
+        }
+        r.raw_response = "raw context pack should not appear"
+
+        out = render("brief", [r])
+
+        self.assertIsNotNone(out)
+        self.assertIn("阶段：intraday", out)
+        self.assertIn("盘中数据提示", out)
+        self.assertIn("数据质量: limited", out)
+        self.assertIn("限制: quote: stale", out)
+        self.assertIn("限制: news: missing", out)
+        self.assertNotIn("technical: fallback", out)
+        self.assertNotIn("raw context pack", out)
+
+    def test_render_templates_skip_phase_pack_excerpt_when_summary_missing(self) -> None:
+        r = _make_result()
+
+        out = render("brief", [r])
+
+        self.assertIsNotNone(out)
+        self.assertNotIn("摘要来源", out)
+        self.assertNotIn("evaluator snapshot", out)
+
     def test_render_markdown_footer_uses_consistent_separator(self) -> None:
         r = _make_result(model_used="gemini/gemini-2.5-flash")
 

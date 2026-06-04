@@ -7,6 +7,10 @@
 
 {% for e in enriched %}
 {{ e.signal_emoji }} **{{ e.stock_name }}({{ e.result.code }})**: {{ e.localized_operation_advice }} | {{ labels.score_label }} {{ e.result.sentiment_score }} | {{ e.localized_trend_prediction }}
+{% set phase_excerpt = phase_pack_excerpt(e.result) %}
+{% if phase_excerpt %}
+{{ phase_excerpt }}
+{% endif %}
 {% endfor %}
 
 ---

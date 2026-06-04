@@ -31,6 +31,7 @@ from src.report_language import (
 )
 from src.storage import DatabaseManager
 from src.services.run_diagnostics import build_run_diagnostic_summary
+from src.market_phase_summary import extract_market_phase_summary
 from src.utils.data_processing import (
     extract_realtime_detail_fields,
     normalize_model_used,
@@ -258,6 +259,7 @@ class HistoryService:
         market_fields = self._extract_history_market_fields(
             getattr(record, "context_snapshot", None)
         )
+        market_phase_summary = extract_market_phase_summary(getattr(record, "context_snapshot", None))
 
         return {
             "id": record.id,
@@ -271,6 +273,7 @@ class HistoryService:
             "operation_advice": record.operation_advice,
             "model_used": normalize_model_used(model_used),
             "created_at": record.created_at.isoformat() if record.created_at else None,
+            "market_phase_summary": market_phase_summary,
             **market_fields,
         }
 

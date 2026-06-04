@@ -3,6 +3,7 @@ import { Badge, Button } from '../common';
 import type { StockBarItem as StockBarItemType } from '../../types/analysis';
 import { getSentimentColor } from '../../types/analysis';
 import { formatDateTime } from '../../utils/format';
+import { getMarketPhaseSummaryLabel } from '../../utils/marketPhase';
 import { truncateStockName, isStockNameTruncated } from '../../utils/stockName';
 
 interface StockBarItemProps {
@@ -36,6 +37,7 @@ export const StockBarItemComponent: React.FC<StockBarItemProps> = ({
   const stockName = item.stockName || item.stockCode;
   const isTruncated = isStockNameTruncated(stockName);
   const operationLabel = getOperationBadgeLabel(item.operationAdvice);
+  const phaseLabel = getMarketPhaseSummaryLabel(item.marketPhaseSummary, 'zh')?.replace('市场阶段: ', '').replace('市场阶段：', '');
 
   return (
     <button
@@ -72,6 +74,11 @@ export const StockBarItemComponent: React.FC<StockBarItemProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-1 shrink-0">
+              {phaseLabel ? (
+                <Badge variant="default" size="sm" className="shrink-0 shadow-none text-[10px] leading-none">
+                  {phaseLabel}
+                </Badge>
+              ) : null}
               {isMarketReview ? (
                 <Badge
                   variant="default"

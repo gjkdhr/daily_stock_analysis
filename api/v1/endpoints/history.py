@@ -132,7 +132,8 @@ def get_history_list(
                 volume_ratio=item.get("volume_ratio"),
                 turnover_rate=item.get("turnover_rate"),
                 model_used=item.get("model_used"),
-                created_at=item.get("created_at")
+                created_at=item.get("created_at"),
+                market_phase_summary=item.get("market_phase_summary"),
             )
             for item in result.get("items", [])
         ]
@@ -295,6 +296,7 @@ def get_stock_bar(
                         record.created_at.isoformat() if record.created_at else None
                     ),
                     model_used=normalize_model_used(model_used),
+                    market_phase_summary=extract_market_phase_summary(getattr(record, "context_snapshot", None)),
                 )
             )
 

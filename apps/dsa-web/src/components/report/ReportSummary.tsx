@@ -6,6 +6,7 @@ import { ReportNews } from './ReportNews';
 import { ReportDetails } from './ReportDetails';
 import { ReportDiagnostics } from './ReportDiagnostics';
 import { AnalysisContextSummary } from './AnalysisContextSummary';
+import { MarketReviewReportView } from './MarketReviewReportView';
 import { getReportText, normalizeReportLanguage } from '../../utils/reportLanguage';
 
 interface ReportSummaryProps {
@@ -42,6 +43,16 @@ export const ReportSummary: React.FC<ReportSummaryProps> = ({
   const shouldShowModel = Boolean(
     modelUsed && !['unknown', 'error', 'none', 'null', 'n/a'].includes(modelUsed.toLowerCase()),
   );
+
+  if (meta.reportType === 'market_review') {
+    return (
+      <MarketReviewReportView
+        report={report}
+        recordId={recordId}
+        reportLanguage={reportLanguage}
+      />
+    );
+  }
 
   return (
     <div className="space-y-5 pb-8 animate-fade-in">

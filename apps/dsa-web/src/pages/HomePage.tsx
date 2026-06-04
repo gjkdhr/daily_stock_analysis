@@ -12,12 +12,14 @@ import { DashboardStateBlock } from '../components/dashboard';
 import { StockAutocomplete } from '../components/StockAutocomplete';
 import { StockHistoryTrendDrawer, StockBar } from '../components/history';
 import { ReportMarkdownDrawer } from '../components/report/ReportMarkdownDrawer';
+import { MarketReviewReportView } from '../components/report/MarketReviewReportView';
 import { ReportSummary } from '../components/report/ReportSummary';
 import { TaskPanel } from '../components/tasks';
 import { useDashboardLifecycle, useHomeDashboardState } from '../hooks';
 import { useWatchlist } from '../hooks/useWatchlist';
 import type { SetupStatusResponse } from '../types/systemConfig';
 import { getReportText, normalizeReportLanguage } from '../utils/reportLanguage';
+import type { MarketReviewPayload } from '../types/analysis';
 
 type MarketReviewNotice = {
   variant: 'success' | 'warning' | 'danger';
@@ -32,7 +34,7 @@ const HomePage: React.FC = () => {
   const [marketReviewNotice, setMarketReviewNotice] = useState<MarketReviewNotice>(null);
   const [marketReviewError, setMarketReviewError] = useState<ParsedApiError | null>(null);
   const [marketReviewReport, setMarketReviewReport] = useState<string | null>(null);
-  const [marketReviewReportCopied, setMarketReviewReportCopied] = useState(false);
+  const [marketReviewPayload, setMarketReviewPayload] = useState<MarketReviewPayload | null>(null);
   const [analysisSkills, setAnalysisSkills] = useState<SkillInfo[]>([]);
   const [selectedStrategyId, setSelectedStrategyId] = useState('');
   const [strategyMenuOpen, setStrategyMenuOpen] = useState(false);
@@ -176,6 +178,7 @@ const HomePage: React.FC = () => {
   }, [analysisSkills, selectedStrategyId]);
 
   const reportLanguage = normalizeReportLanguage(selectedReport?.meta.reportLanguage);
+  const liveMarketReviewLanguage = normalizeReportLanguage(marketReviewPayload?.language);
   const reportText = getReportText(reportLanguage);
   const isMarketReviewHistoryReport = selectedReport?.meta.reportType === 'market_review';
   const isHistoryTrendUnavailable = !selectedReport || selectedReport.meta.reportType === 'market_review'
@@ -316,10 +319,19 @@ const HomePage: React.FC = () => {
 
   const watchlistState = useWatchlist();
 
+  const clearMarketReviewState = useCallback(() => {
+    stopMarketReviewPolling();
+    setMarketReviewReport(null);
+    setMarketReviewPayload(null);
+    setMarketReviewNotice(null);
+    setMarketReviewError(null);
+  }, [stopMarketReviewPolling]);
+
   const handleHistoryItemClick = useCallback((recordId: number) => {
+    clearMarketReviewState();
     void selectHistoryItem(recordId);
     setSidebarOpen(false);
-  }, [selectHistoryItem]);
+  }, [clearMarketReviewState, selectHistoryItem]);
 
   const [isDeletingStock, setIsDeletingStock] = useState(false);
   const handleDeleteStock = useCallback(async (stockCode: string) => {
@@ -391,6 +403,7 @@ const HomePage: React.FC = () => {
         if (attempts >= maxAttempts) {
           stopMarketReviewPolling();
           setMarketReviewReport(null);
+          setMarketReviewPayload(null);
           setMarketReviewNotice({
             variant: 'danger',
             title: '大盘复盘已超时',
@@ -406,6 +419,7 @@ const HomePage: React.FC = () => {
           const status = await analysisApi.getStatus(taskId);
           if (status.status === 'pending' || status.status === 'processing') {
             setMarketReviewReport(null);
+            setMarketReviewPayload(null);
             const progress = typeof status.progress === 'number'
               ? `${status.progress}%`
               : '进行中';
@@ -423,6 +437,7 @@ const HomePage: React.FC = () => {
               ? status.marketReviewReport
               : '';
             setMarketReviewReport(marketReviewText ? marketReviewText.trim() : null);
+            setMarketReviewPayload(status.marketReviewPayload ?? null);
             setMarketReviewNotice({
               variant: 'success',
               title: '大盘复盘已完成',
@@ -436,6 +451,7 @@ const HomePage: React.FC = () => {
           if (status.status === 'failed') {
             stopMarketReviewPolling();
             setMarketReviewReport(null);
+            setMarketReviewPayload(null);
             setMarketReviewError(
               getParsedApiError({
                 response: {
@@ -454,6 +470,7 @@ const HomePage: React.FC = () => {
 
           stopMarketReviewPolling();
           setMarketReviewReport(null);
+          setMarketReviewPayload(null);
           setMarketReviewNotice({
             variant: 'danger',
             title: '大盘复盘状态异常',
@@ -466,6 +483,7 @@ const HomePage: React.FC = () => {
           if (attempts >= maxAttempts) {
             stopMarketReviewPolling();
             setMarketReviewReport(null);
+            setMarketReviewPayload(null);
             setMarketReviewError(parsed);
             setMarketReviewNotice(null);
             scrollMarketReviewFeedbackIntoView();
@@ -495,6 +513,7 @@ const HomePage: React.FC = () => {
     setMarketReviewNotice(null);
     setMarketReviewError(null);
     setMarketReviewReport(null);
+    setMarketReviewPayload(null);
     scrollMarketReviewFeedbackIntoView();
     try {
       const result = await analysisApi.triggerMarketReview({ sendNotification: notify });
@@ -516,22 +535,6 @@ const HomePage: React.FC = () => {
       setIsSubmittingMarketReview(false);
     }
   }, [notify, pollMarketReviewStatus, scrollMarketReviewFeedbackIntoView]);
-
-  const handleCopyMarketReviewReport = useCallback(() => {
-    if (!marketReviewReport) {
-      return;
-    }
-
-    void navigator.clipboard.writeText(marketReviewReport).then(
-      () => {
-        setMarketReviewReportCopied(true);
-        setTimeout(() => setMarketReviewReportCopied(false), 2000);
-      },
-      (err) => {
-        console.error('复制失败:', err);
-      },
-    );
-  }, [marketReviewReport]);
 
   const sidebarContent = useMemo(
     () => (
@@ -778,25 +781,12 @@ const HomePage: React.FC = () => {
             ) : null}
 
             {marketReviewReport ? (
-              <div className="mb-3 rounded-xl border border-subtle bg-surface/70 px-3 py-3 text-xs text-secondary-text shadow-sm">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="font-semibold text-foreground">大盘复盘报告</p>
-                  <button
-                    type="button"
-                    className="home-surface-button h-7 rounded-md px-3 py-1 text-xs text-foreground"
-                    disabled={marketReviewReportCopied}
-                    onClick={() => void handleCopyMarketReviewReport()}
-                  >
-                    {marketReviewReportCopied ? '已复制' : '复制'}
-                  </button>
-                </div>
-                <pre
-                  data-testid="market-review-report"
-                  className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-background px-3 py-2 leading-relaxed"
-                >
-                  {marketReviewReport}
-                </pre>
-              </div>
+              <MarketReviewReportView
+                content={marketReviewReport}
+                payload={marketReviewPayload}
+                reportLanguage={liveMarketReviewLanguage}
+                className="mb-3"
+              />
             ) : null}
 
             {error ? (
@@ -806,12 +796,13 @@ const HomePage: React.FC = () => {
                 onDismiss={clearError}
               />
             ) : null}
-            {isLoadingReport ? (
+            {!marketReviewReport && isLoadingReport ? (
               <div className="flex h-full flex-col items-center justify-center">
                 <DashboardStateBlock title="加载报告中..." loading />
               </div>
-            ) : selectedReport ? (
+            ) : !marketReviewReport && selectedReport ? (
               <div className={isHistoryTrendOpen ? 'max-w-6xl space-y-4 pb-8' : 'max-w-4xl space-y-4 pb-8'}>
+                {!isMarketReviewHistoryReport ? (
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Button
                     variant="home-action-ai"
@@ -863,6 +854,7 @@ const HomePage: React.FC = () => {
                     {reportText.fullReport}
                   </Button>
                 </div>
+                ) : null}
                 {isHistoryTrendOpen ? (
                   <StockHistoryTrendDrawer
                     key={`stock-history-${selectedReport.meta.id}`}
@@ -893,7 +885,7 @@ const HomePage: React.FC = () => {
                   />
                 )}
               </div>
-            ) : (
+            ) : !marketReviewReport ? (
               <div className="flex h-full items-center justify-center">
                 <EmptyState
                   title="开始分析"
@@ -906,7 +898,7 @@ const HomePage: React.FC = () => {
                   )}
                 />
               </div>
-            )}
+            ) : null}
           </section>
         </div>
       </div>

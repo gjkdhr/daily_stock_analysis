@@ -31,6 +31,7 @@ def test_analysis_context_pack_doc_has_required_sections() -> None:
         "## P3 Runtime Consumption",
         "## P4 历史记录、任务状态与 Web 可见性",
         "## P5 数据质量评分与 Prompt 数据限制",
+        "## P6 文档、迁移与回滚",
         "## 字段质量状态",
         "## 现有状态映射",
         "## 七路径盘点",
@@ -297,6 +298,7 @@ def test_analysis_context_pack_doc_defines_p4_visibility_contract() -> None:
         "`analysisContextPackOverview`",
         "`GET /api/v1/history/{record_id}`",
         "同步 `POST /api/v1/analysis/analyze`",
+        "overview 依赖已持久化的 `analysis_history.context_snapshot`",
         "completed `GET /api/v1/analysis/status/{task_id}`",
         "`sanitize_context_snapshot_for_api()`",
         "`extract_analysis_context_pack_overview()`",
@@ -304,6 +306,9 @@ def test_analysis_context_pack_doc_defines_p4_visibility_contract() -> None:
         "`trend_result`",
         "`fundamental_context`",
         "`SAVE_CONTEXT_SNAPSHOT=false`",
+        "不持久化整份 `analysis_history.context_snapshot`",
+        "`market_phase_summary`",
+        "`enhanced_context`",
         "`AnalysisContextSummary`",
         "位置在策略点位和资讯之后、运行诊断之前",
         "默认折叠",
@@ -341,6 +346,37 @@ def test_analysis_context_pack_doc_defines_p5_data_quality_contract() -> None:
         "不新增 fetcher",
         "不改变 LLM 输出 JSON schema",
         "`dashboard.phase_decision`",
+    ):
+        assert token in section
+
+
+def test_analysis_context_pack_doc_defines_p6_migration_and_rollback_contract() -> None:
+    section = _section(_read_doc(), "P6 文档、迁移与回滚")
+
+    for token in (
+        "四个数据面",
+        "内部完整 pack",
+        "`analysis_context_pack_summary`",
+        "`analysis_context_pack_overview`",
+        "`analysis_history.context_snapshot`",
+        "摘要可见性矩阵",
+        "`SAVE_CONTEXT_SNAPSHOT=true`",
+        "`SAVE_CONTEXT_SNAPSHOT=false`",
+        "`--no-context-snapshot`",
+        "不持久化整份 `analysis_history.context_snapshot`",
+        "本次历史已持久化 `analysis_history.context_snapshot`",
+        "`enhanced_context`",
+        "`market_phase_summary`",
+        "`diagnostics`",
+        "`realtime_quote_raw`",
+        "不影响当次 `AnalysisContextPack` 构建",
+        "不影响内存中的 `result.diagnostic_context_snapshot`",
+        "当前不存在",
+        "运行时 pack 总开关",
+        "发布或代码回滚",
+        "secret",
+        "token",
+        "webhook",
     ):
         assert token in section
 
@@ -392,19 +428,20 @@ def test_analysis_context_pack_doc_updates_indexes_and_changelog() -> None:
     changelog = (PROJECT_ROOT / "docs" / "CHANGELOG.md").read_text(encoding="utf-8")
 
     assert "[分析上下文包契约、运行态消费与可见性](analysis-context-pack.md)" in index
-    assert "P1/P2 内部契约、P3 Prompt 摘要消费、P4 历史/API/Web 低敏可见性、P5 数据质量评分" in index
+    assert "P1/P2 内部契约、P3 Prompt 摘要消费、P4 历史/API/Web 低敏可见性、P5 数据质量评分、P6 迁移回滚" in index
     assert (
         "[Analysis Context Pack Contract, Runtime Consumption, And Visibility](analysis-context-pack.md) "
-        "<sub><sub>![P5 Badge](https://img.shields.io/badge/P5-orange?style=flat)</sub></sub> "
+        "<sub><sub>![P6 Badge](https://img.shields.io/badge/P6-orange?style=flat)</sub></sub> "
         "(Chinese-only)"
     ) in index_en
-    assert "P1/P2 internal contracts, P3 prompt-summary consumption, P4 history/API/Web low-sensitivity visibility, P5 data-quality scoring" in index_en
+    assert "P1/P2 internal contracts, P3 prompt-summary consumption, P4 history/API/Web low-sensitivity visibility, P5 data-quality scoring, and P6 migration/rollback notes" in index_en
     assert "新增 AnalysisContextPack P0 上下文盘点" in changelog
     assert "新增 AnalysisContextPack P1 内部契约与脱敏序列化测试" in changelog
     assert "新增 AnalysisContextPack P2 builder" in changelog
     assert "普通分析与 Agent 运行时 Prompt 接入 AnalysisContextPack 低敏摘要" in changelog
     assert "AnalysisContextPack P4 低敏 overview 接入历史详情" in changelog
     assert "AnalysisContextPack P5 增加数据质量评分" in changelog
+    assert "明确 AnalysisContextPack P6 文档、迁移与回滚边界" in changelog
     assert "#1386 P5 为个股分析报告新增 `dashboard.phase_decision`" in changelog
     assert "优化 Web 报告详情页信息层级" in changelog
 
@@ -422,6 +459,8 @@ def test_full_guides_clarify_pack_summary_does_not_replace_legacy_payload_channe
     assert "折叠头部展示可用数、缺失数、非零的其他状态计数和触发来源" in guide
     assert "Web 报告页在策略点位和资讯之后默认折叠展示数据块状态" in guide
     assert "`details.context_snapshot` 会剥离顶层 `analysis_context_pack_overview`" in guide
+    assert "同步分析响应也会读取本次已落库的 `analysis_history.context_snapshot` 提取 overview" in guide
+    assert "`SAVE_CONTEXT_SNAPSHOT=false` 时新记录不保证返回该字段" in guide
     assert "AnalysisContextPack 数据质量评分与 Prompt 数据限制（Issue #1389 P5）" in guide
     assert "盘中决策护栏与质量校验（Issue #1386 P5）" in guide
     assert "`dashboard.phase_decision`" in guide
@@ -429,16 +468,23 @@ def test_full_guides_clarify_pack_summary_does_not_replace_legacy_payload_channe
     assert "折叠头部新增质量分/等级" in guide
     assert "`report.meta.market_phase_summary`" in guide
     assert "`details.context_snapshot` 会剥离顶层 `market_phase_summary`" in guide
+    assert "AnalysisContextPack 文档、迁移与回滚（Issue #1389 P6）" in guide
+    assert "`SAVE_CONTEXT_SNAPSHOT` 是既有环境变量" in guide
+    assert "不持久化整份 `analysis_history.context_snapshot`" in guide
+    assert "不关闭当次 `AnalysisContextPack` 构建" in guide
+    assert "当前没有运行时 pack 总开关" in guide
 
     assert "in this new pack-summary section" in guide_en
     assert "not full `news.content`" in guide_en
     assert "Existing `news_context`, Agent pre-fetched JSON, and `enhanced_context` raw-payload channels keep their pre-P3 behavior" in guide_en
     assert "`report.details.analysis_context_pack_overview`" in guide_en
     assert "completed `/api/v1/analysis/status/{task_id}`" in guide_en
-    assert "the Web report page renders a collapsed data-block summary after Strategy and News" in guide_en
+    assert "The Web report page renders a collapsed data-block summary after Strategy and News" in guide_en
     assert "available/missing counts, non-zero other status counts, and trigger source" in guide_en
     assert "the Web report page shows the data-block summary collapsed after Strategy and News" in guide_en
     assert "API `details.context_snapshot` strips the top-level `analysis_context_pack_overview`" in guide_en
+    assert "sync analysis responses also extract the overview from the just-persisted `analysis_history.context_snapshot`" in guide_en
+    assert "new records do not guarantee this field when `SAVE_CONTEXT_SNAPSHOT=false`" in guide_en
     assert "AnalysisContextPack Data Quality Scoring and Prompt Limitations (Issue #1389 P5)" in guide_en
     assert "Intraday Decision Guardrails and Quality Checks (Issue #1386 P5)" in guide_en
     assert "`dashboard.phase_decision`" in guide_en
@@ -446,3 +492,8 @@ def test_full_guides_clarify_pack_summary_does_not_replace_legacy_payload_channe
     assert "adds quality score/level to the header" in guide_en
     assert "`report.meta.market_phase_summary`" in guide_en
     assert "API `details.context_snapshot` strips the top-level `market_phase_summary`" in guide_en
+    assert "AnalysisContextPack Documentation, Migration, and Rollback (Issue #1389 P6)" in guide_en
+    assert "`SAVE_CONTEXT_SNAPSHOT` is an existing environment variable" in guide_en
+    assert "the full `analysis_history.context_snapshot` is not persisted" in guide_en
+    assert "does not disable current-run `AnalysisContextPack` construction" in guide_en
+    assert "There is no runtime pack master switch" in guide_en

@@ -323,6 +323,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
                     "turnover_rate": "11.46",
                 },
             },
+            "market_phase_summary": _market_phase_summary(),
         }
 
         saved = self.db.save_analysis_history(
@@ -349,6 +350,8 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         self.assertEqual(item["change_pct"], -4.61)
         self.assertEqual(item["volume_ratio"], 1.17)
         self.assertEqual(item["turnover_rate"], 11.46)
+        self.assertEqual(item["market_phase_summary"]["phase"], "intraday")
+        self.assertEqual(item["market_phase_summary"]["minutes_to_close"], 300)
 
     def test_history_list_matches_equivalent_suffixed_stock_codes(self) -> None:
         """Same-stock history should include rows saved with supported suffixed codes."""
