@@ -4,7 +4,7 @@ import type { StockBarItem as StockBarItemType } from '../../types/analysis';
 import { getSentimentColor } from '../../types/analysis';
 import { formatDateTime } from '../../utils/format';
 import { getMarketPhaseSummaryLabel } from '../../utils/marketPhase';
-import { truncateStockName, isStockNameTruncated } from '../../utils/stockName';
+import { truncateStockName } from '../../utils/stockName';
 
 interface StockBarItemProps {
   item: StockBarItemType;
@@ -35,7 +35,6 @@ export const StockBarItemComponent: React.FC<StockBarItemProps> = ({
 }) => {
   const sentimentColor = item.sentimentScore !== undefined ? getSentimentColor(item.sentimentScore) : null;
   const stockName = item.stockName || item.stockCode;
-  const isTruncated = isStockNameTruncated(stockName);
   const operationLabel = getOperationBadgeLabel(item.operationAdvice);
   const phaseLabel = getMarketPhaseSummaryLabel(item.marketPhaseSummary, 'zh')?.replace('市场阶段: ', '').replace('市场阶段：', '');
 
@@ -43,11 +42,12 @@ export const StockBarItemComponent: React.FC<StockBarItemProps> = ({
     <button
       type="button"
       onClick={() => onClick(item.id)}
-      className={`home-history-item w-full text-left p-2.5 group/item ${
+      aria-label={`${stockName} ${item.stockCode} 历史记录`}
+      className={`home-history-item w-full min-w-0 flex-1 text-left p-2.5 group/item ${
         isViewing ? 'home-history-item-selected' : ''
       }`}
     >
-      <div className={`flex items-center gap-2.5 relative z-10${isTruncated ? ' group-hover/item:z-20' : ''}`}>
+      <div className="relative z-10 flex items-center gap-2.5">
         {isMarketReview ? (
           <div className="w-1 h-8 rounded-full flex-shrink-0 bg-amber-400" style={{ boxShadow: '0 0 10px rgba(251,191,36,0.4)' }} />
         ) : sentimentColor ? (
@@ -64,21 +64,11 @@ export const StockBarItemComponent: React.FC<StockBarItemProps> = ({
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <span className="truncate text-sm font-semibold text-foreground tracking-tight">
-                <span className="group-hover/item:hidden">
-                  {truncateStockName(stockName)}
-                </span>
-                <span className="hidden group-hover/item:inline">
-                  {stockName}
-                </span>
+              <span className="block w-full truncate text-sm font-semibold text-foreground tracking-tight">
+                {truncateStockName(stockName)}
               </span>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
-              {phaseLabel ? (
-                <Badge variant="default" size="sm" className="shrink-0 shadow-none text-[10px] leading-none">
-                  {phaseLabel}
-                </Badge>
-              ) : null}
+            <div className="flex items-center gap-1 shrink-0" data-testid="history-card-actions">
               {isMarketReview ? (
                 <Badge
                   variant="default"
@@ -125,7 +115,7 @@ export const StockBarItemComponent: React.FC<StockBarItemProps> = ({
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="mt-1 flex flex-wrap items-center gap-2" data-testid="history-card-meta">
             <span className="text-[11px] text-secondary-text font-mono">
               {item.stockCode}
             </span>
@@ -145,6 +135,14 @@ export const StockBarItemComponent: React.FC<StockBarItemProps> = ({
                 </span>
               </>
             )}
+            {phaseLabel ? (
+              <>
+                <span className="w-1 h-1 rounded-full bg-subtle-hover" />
+                <Badge variant="default" size="sm" className="shrink-0 shadow-none text-[10px] leading-none">
+                  {phaseLabel}
+                </Badge>
+              </>
+            ) : null}
           </div>
         </div>
       </div>

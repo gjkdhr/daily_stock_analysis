@@ -14,6 +14,7 @@ export type AlphaSiftStatus = {
   contractVersion?: string | null;
   version?: string | null;
   strategyCount?: number | null;
+  diagnostics?: Record<string, string>;
 };
 
 export type AlphaSiftInstallResponse = {
@@ -49,6 +50,27 @@ export type AlphaSiftCandidate = {
   factorScores?: Record<string, number>;
   postAnalysisSummaries?: Record<string, string>;
   postAnalysisTags?: string[];
+  dsaContext?: {
+    enriched?: boolean;
+    quote?: Record<string, unknown>;
+    fundamentals?: Record<string, unknown>;
+    news?: {
+      success?: boolean;
+      query?: string;
+      provider?: string;
+      results?: Array<Record<string, unknown>>;
+      error?: string | null;
+    };
+    warnings?: string[];
+  };
+  dsaNews?: Array<{
+    title?: string;
+    snippet?: string;
+    url?: string;
+    source?: string;
+    publishedDate?: string | null;
+  }>;
+  dsaAnalysisSummary?: string;
   raw: Record<string, unknown>;
 };
 
@@ -88,6 +110,13 @@ export type AlphaSiftScreenResponse = {
   llmParseErrors?: string[];
   warnings?: string[];
   sourceErrors?: string[];
+  dsaEnrichment?: {
+    enabled?: boolean;
+    maxCandidates?: number;
+    requestedCount?: number;
+    enrichedCount?: number;
+    warnings?: string[];
+  };
 };
 
 export function notifyAlphaSiftConfigChanged(): void {
@@ -140,11 +169,8 @@ export const alphasiftApi = {
     try {
       const status = await alphasiftApi.getStatus();
       if (!status.available) {
-        await alphasiftApi.install();
-        const installedStatus = await alphasiftApi.getStatus();
-        if (!installedStatus.available) {
-          throw new Error('AlphaSift 自动安装完成，但适配层仍不可用。请检查后端 Python 环境和 AlphaSift 安装状态后重试。');
-        }
+        const reason = status.diagnostics?.reason ? `（${status.diagnostics.reason}）` : '';
+        throw new Error(`AlphaSift 适配层不可用${reason}。请确认后端已安装项目依赖，必要时执行 pip install -r requirements.txt 或重建 Docker/桌面后端。`);
       }
     } catch (error) {
       try {

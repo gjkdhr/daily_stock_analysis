@@ -81,6 +81,7 @@ def _normalize_code_for_grouping(code: str) -> str:
 )
 def get_history_list(
     stock_code: Optional[str] = Query(None, description="股票代码筛选"),
+    report_type: Optional[str] = Query(None, description="报告类型筛选，如 market_review"),
     start_date: Optional[str] = Query(None, description="开始日期 (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="结束日期 (YYYY-MM-DD)"),
     page: int = Query(1, ge=1, description="页码（从 1 开始）"),
@@ -94,6 +95,7 @@ def get_history_list(
     
     Args:
         stock_code: 股票代码筛选
+        report_type: 报告类型筛选
         start_date: 开始日期
         end_date: 结束日期
         page: 页码
@@ -109,6 +111,7 @@ def get_history_list(
         # 使用 def 而非 async def，FastAPI 自动在线程池中执行
         result = service.get_history_list(
             stock_code=stock_code,
+            report_type=report_type,
             start_date=start_date,
             end_date=end_date,
             page=page,
@@ -240,7 +243,7 @@ def delete_history_records(
         500: {"description": "服务器错误", "model": ErrorResponse},
     },
     summary="获取不重复个股列表",
-    description="返回历史记录中每只股票的最新一条分析摘要，大盘复盘（code=MARKET）始终置顶。",
+    description="返回历史记录中每只股票的最新一条分析摘要，不包含大盘复盘（code=MARKET）。",
 )
 def get_stock_bar(
     start_date: Optional[str] = Query(None, description="开始日期 (YYYY-MM-DD)"),

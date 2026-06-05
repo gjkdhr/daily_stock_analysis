@@ -674,7 +674,7 @@ const SettingsPage: React.FC = () => {
             {alphasiftItem ? (
               <SettingsSectionCard
                 title="AlphaSift 选股"
-                description="启用第三方项目 AlphaSift 提供的选股能力。"
+                description="启用内置 AlphaSift 实验性质选股能力。"
               >
                 <div className="flex flex-col gap-4 rounded-2xl border settings-border bg-background/35 px-4 py-4 md:flex-row md:items-center md:justify-between">
                   <div>
@@ -682,10 +682,10 @@ const SettingsPage: React.FC = () => {
                       {alphasiftEnabled ? '选股已开启' : '选股未开启'}
                     </p>
                     <p className="mt-1 text-xs leading-6 text-muted-text">
-                      开启后左侧导航会显示“选股”；若适配层缺失，会先尝试受控自动安装，策略和候选生成来自 AlphaSift。
+                      开启后左侧导航会显示“选股”；策略和候选生成来自 AlphaSift，DSA 会补充行情、基本面和新闻上下文。
                     </p>
                     <p className="mt-2 text-xs leading-6 text-amber-700 dark:text-amber-300">
-                      风险提示：选股结果仅用于研究和辅助判断，不构成投资建议；市场有风险，交易决策和损益由使用者自行承担。
+                      实验功能与风险提示：选股结果仅用于研究和辅助判断，不构成投资建议；市场有风险，交易决策和损益由使用者自行承担。
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -860,6 +860,11 @@ const SettingsPage: React.FC = () => {
                   </div>
                   <p className="text-xs leading-6 text-muted-text">
                     导出内容仅包含当前已保存配置，不包含页面上尚未保存的本地草稿。
+                  </p>
+                  <p className="text-xs leading-6 text-muted-text">
+                    Docker 部署中，`--env-file` / Compose `env_file` 只会在启动时注入环境变量；此处导出/导入的是后端当前活跃的
+                    `.env` 文件。若需要让 WebUI 保存值随容器重建保留，请将 `ENV_FILE` 指向 `/app/data/runtime.env` 等可写数据卷文件，
+                    并避免启动环境里继续保留同名旧值。
                   </p>
                   {envBackupActionError ? (
                     <ApiErrorAlert

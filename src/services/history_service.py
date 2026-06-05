@@ -135,6 +135,7 @@ class HistoryService:
     def get_history_list(
         self,
         stock_code: Optional[str] = None,
+        report_type: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         page: int = 1,
@@ -145,6 +146,7 @@ class HistoryService:
         
         Args:
             stock_code: Stock code filter
+            report_type: Report type filter
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
             page: Page number
@@ -179,6 +181,7 @@ class HistoryService:
             # Use new paginated query method
             records, total = self.db.get_analysis_history_paginated(
                 code=stock_code,
+                report_type=report_type,
                 start_date=start_dt,
                 end_date=end_dt,
                 offset=offset,

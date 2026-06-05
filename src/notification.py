@@ -30,6 +30,7 @@ from src.notification_routing import (
     get_notification_route_config,
     split_notification_route_channels,
 )
+from src.notification_contracts import is_feishu_static_configured
 from src.notification_noise import (
     NotificationNoiseDecision,
     evaluate_notification_noise,
@@ -362,7 +363,7 @@ class NotificationService(
         if getattr(config, "wechat_webhook_url", None):
             channels.append(NotificationChannel.WECHAT)
 
-        if getattr(config, "feishu_webhook_url", None):
+        if is_feishu_static_configured(config):
             channels.append(NotificationChannel.FEISHU)
 
         if (

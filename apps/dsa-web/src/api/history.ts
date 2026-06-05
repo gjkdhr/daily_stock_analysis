@@ -24,10 +24,11 @@ export const historyApi = {
    * @param params 筛选和分页参数
    */
   getList: async (params: GetHistoryListParams = {}): Promise<HistoryListResponse> => {
-    const { stockCode, startDate, endDate, page = 1, limit = 20 } = params;
+    const { stockCode, reportType, startDate, endDate, page = 1, limit = 20 } = params;
 
     const queryParams: Record<string, string | number> = { page, limit };
     if (stockCode) queryParams.stock_code = stockCode;
+    if (reportType) queryParams.report_type = reportType;
     if (startDate) queryParams.start_date = startDate;
     if (endDate) queryParams.end_date = endDate;
 
@@ -111,7 +112,7 @@ export const historyApi = {
   },
 
   /**
-   * 获取个股栏列表（不重复个股，大盘复盘置顶）
+   * 获取个股栏列表（不重复个股，不包含大盘复盘）
    */
   getStockBarList: async (params: {
     startDate?: string;

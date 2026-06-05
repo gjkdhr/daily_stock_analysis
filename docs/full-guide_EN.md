@@ -275,7 +275,9 @@ For the notification baseline, diagnostics, and deployment notes, see [Notificat
 > 3. Create a group and add the app bot
 > 4. Add the group as a collaborator to the cloud drive folder (with manage permissions)
 >
-> Note: `FEISHU_APP_ID` / `FEISHU_APP_SECRET` are for Feishu app mode, cloud documents, or Stream Bot mode. They do not enable group webhook notifications by themselves. For simple push notifications, use `FEISHU_WEBHOOK_URL` first.
+> Note: `FEISHU_APP_ID` / `FEISHU_APP_SECRET` are for Feishu app mode, cloud documents, or Stream Bot mode. They do not enable group webhook notifications by themselves. For simple group push notifications, use `FEISHU_WEBHOOK_URL` first.
+>
+> Supplement: When `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, and `FEISHU_CHAT_ID` are all configured, they enable the Feishu App Bot active notification channel without relying on group webhooks. `FEISHU_RECEIVE_ID_TYPE` defaults to `chat_id`; set it to `open_id` for P2P delivery. This uses the Feishu OpenAPI Bot session route, which is independent of the group webhook path.
 
 ### Search Service Configuration
 
@@ -474,7 +476,9 @@ For both `docker run` and Compose, keep startup environment injection separate f
   This passes key/value pairs from `.env` into the container process environment.
 - Runtime config writes: do not bind-mount the host `.env` as a single file over the container's `.env` path. Docker treats the target as a mount point, so the `os.replace()` atomic update used during config saves can fail with `Device or resource busy`; fallback in-place writes can also fail on permissions.
 
-The default Compose and `docker run` examples only use `env_file` / `--env-file` for startup config injection and no longer mount the host `.env` file into the container. Runtime config saved from the WebUI is written to the container-local config file by default and is not the same as writing back to the host `.env`; after deleting or recreating the container, startup still uses the injected `.env` file. If you need persistent runtime config, point `ENV_FILE` at a writable data volume file such as `/app/data/runtime.env` instead of using a single-file `.env` bind mount.
+The default Compose and `docker run` examples only use `env_file` / `--env-file` for startup config injection and no longer mount the host `.env` file into the container. When the active `.env` file does not contain a key, the WebUI Settings page falls back to showing the same key from startup-injected process environment variables, so Docker users can see injected config without importing it first. The raw `.env` export still contains only the active config file content.
+
+Runtime config saved from the WebUI is written to the container-local config file by default and is not the same as writing back to the host `.env`; after deleting or recreating the container, startup still uses the injected `.env` file. If you need persistent runtime config, point `ENV_FILE` at a writable data volume file such as `/app/data/runtime.env` instead of using a single-file `.env` bind mount. Note that same-name values still present in startup `env_file`, `--env-file`, `docker run -e`, or Compose `environment:` can override the runtime file on restart; update or remove those startup overrides if you want WebUI-saved values to take over.
 
 Recommended host mappings:
 
@@ -720,6 +724,31 @@ History lists, same-stock history, StockBar items, and details extract `market_p
 
 Notification summaries use one public formatting helper and only include the phase label, trigger source, partial-bar warning, data-quality level, and the first two limitations. They do not output raw context packs, prompts, news body text, or sensitive portfolio details. The Web Alerts, Portfolio, History, StockBar, and Backtest pages display the new phase badges, quality summary, phase filter, and breakdown.
 
+### Documentation, Configuration, And Migration Notes (Issue #1386 P7)
+
+P7 is a user-facing documentation closeout for pre-market / intraday / post-market analysis only. It does not add runtime behavior, configuration keys, API parameters, database migrations, a Web phase override selector, Bot phase parameters, or a GitHub Actions intraday workflow. The default daily post-market analysis, default GitHub Actions run, and existing schedule behavior stay unchanged.
+
+Recommended usage:
+
+| Scenario | Recommended Use | Notes |
+| --- | --- | --- |
+| Pre-market | Build an opening plan and watch conditions | Do not describe today's not-yet-traded price action as fact; focus on the last complete trading day, overnight information, and opening triggers. |
+| Intraday / lunch break / near close | Check live state, risk, and opportunity alerts | Focus on current price, realtime quote freshness, partial bars, data limitations, and next watch conditions. This does not replace the full post-market review. |
+| Post-market | Keep the full review and next-day plan | Uses complete trading-day semantics and is closest to the default daily-analysis scenario. |
+
+Entrypoints and visibility:
+
+| Entrypoint | Phase Behavior |
+| --- | --- |
+| `POST /api/v1/analysis/analyze` | Supports `analysis_phase=auto|premarket|intraday|postmarket`; omitted values default to `auto`. |
+| Web main analysis / re-analysis / portfolio manual analysis | There is currently no phase override selector. The frontend defaults to `auto`, the in-progress task panel shows the requested phase, and the final report page shows the final phase label. |
+| Bot / CLI / schedule / default GitHub Actions | Do not pass `analysis_phase`; they continue to use `auto` inference, and the default post-market behavior is unchanged. |
+| History / backtest / notifications / alerts | Only consume public `market_phase_summary` and low-sensitivity `analysis_context_pack_overview`; they do not expose the full pack, prompt summary, news body text, or sensitive portfolio details. |
+
+`analysis_phase` is the requested override value, while the final report phase remains `report.meta.market_phase_summary.phase`. Older callers that omit `analysis_phase` remain compatible. Older history rows without `market_phase_summary` or `analysis_context_pack_overview` return empty fields and still load normally. Backtest queries support `analysis_phase=premarket|intraday|postmarket|unknown` filtering, and P6 folds lunch-break and near-close phases into intraday.
+
+`SAVE_CONTEXT_SNAPSHOT=false` or CLI `--no-context-snapshot` only stops persisting the full `context_snapshot` for new history rows, so new history no longer exposes persisted phase summary / pack overview / diagnostics snapshot data. It does not disable current-run `AnalysisContextPack` construction, does not remove the low-sensitivity `analysis_context_pack_summary` from prompts, and does not change the report JSON schema. Callers that need output closer to the old post-market wording can temporarily pin `analysis_phase=postmarket`; fully removing the P0-P6 phase/pack runtime integration requires a release rollback or code rollback.
+
 ---
 
 ## Notification Channel Configuration
@@ -753,10 +782,12 @@ FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/your_hook_token
    - **Signature verification enabled**: copy the secret shown in Feishu into `FEISHU_WEBHOOK_SECRET`. **Both sides must be enabled or disabled together** — if Feishu has signing on but `FEISHU_WEBHOOK_SECRET` is missing (or vice versa), every request will be rejected.
    - **Keyword enabled**: copy the exact same keyword into `FEISHU_WEBHOOK_KEYWORD`. The app will prepend it to every message automatically; no need to change report templates.
    - **IP allowlist enabled**: make sure the outbound IP of your runtime (local / Docker / GitHub Actions each have different IPs) is on the allowlist.
-4. `FEISHU_APP_ID` / `FEISHU_APP_SECRET` are for Feishu app / Stream Bot / cloud document flows only — they do **not** trigger group webhook notifications and must not be used instead of `FEISHU_WEBHOOK_URL`.
+4. `FEISHU_APP_ID` / `FEISHU_APP_SECRET` are for Feishu app / Stream Bot / cloud document flows only. They do **not** trigger group webhook notifications and must not be used alone instead of `FEISHU_WEBHOOK_URL`.
+5. If `FEISHU_APP_ID` / `FEISHU_APP_SECRET` are configured together with `FEISHU_CHAT_ID`, the Feishu App Bot can push notifications directly to a specified chat or user, no group webhook required. `FEISHU_RECEIVE_ID_TYPE` defaults to `chat_id`; set it to `open_id` for P2P delivery. This uses the Feishu OpenAPI Bot session route, independent of the group webhook path.
+6. The App Bot send path reuses the existing `lark-oapi>=1.0.0` dependency already listed in `requirements.txt`; standard source installs, Docker, the GitHub Actions daily workflow, and desktop builds all install it through `pip install -r requirements.txt`. References: [Feishu message create OpenAPI](https://open.feishu.cn/document/server-docs/im-v1/message/create), [lark-oapi PyPI](https://pypi.org/project/lark-oapi/), [SDK repo](https://github.com/larksuite/oapi-sdk-python).
 
 **Common failure causes:**
-- Only `FEISHU_APP_ID` / `FEISHU_APP_SECRET` were set, but `FEISHU_WEBHOOK_URL` was not configured
+- Only `FEISHU_APP_ID` / `FEISHU_APP_SECRET` were set, with neither `FEISHU_WEBHOOK_URL` nor the App Bot active-delivery target `FEISHU_CHAT_ID` configured
 - The bot has Signature security enabled, but `FEISHU_WEBHOOK_SECRET` was not set locally (or was mistakenly set to `FEISHU_APP_SECRET`)
 - The bot has Keyword security enabled, but `FEISHU_WEBHOOK_KEYWORD` was not set locally
 - The bot was not added to the target group, or group permissions block it from posting
@@ -1148,6 +1179,7 @@ FastAPI provides RESTful API service for configuration management and triggering
 - **First-run Setup Hint** - The Home page reads the read-only setup status and points users to Settings when required items such as the primary LLM channel or watchlist are missing
 - **Real-time Progress** - Analysis task status updates in real-time, supports parallel tasks; the regular stock-analysis path now prefers LiteLLM streaming during the LLM stage and pushes finer-grained `message/progress` updates through task SSE
 - **Market Review visibility** - After clicking Market Review, the API returns a `task_id` and the UI polls `GET /api/v1/analysis/status/{task_id}` to show progress; completed/failure states are rendered explicitly and failure messages are shown directly in the UI error area.
+- **Market review history dedicated entry** - Market review history is shown in a dedicated history entry and isolated from regular stock history; use `stock_code=MARKET` and `report_type=market_review` to view and replay only market-review records.
 - **Market review history replay** - Market review results are persisted with `report_type=market_review` and can be reopened from history list/detail or Markdown endpoints directly, without re-triggering a fresh analysis run.
 - **Input data-block visibility** - Regular analysis reports expose a low-sensitivity `AnalysisContextPack` overview through history details, sync responses, and completed task status; the Web report page shows the data-block summary collapsed after Strategy and News, with block status, source, missing reasons, and fallback summaries available on expansion.
 - **Backtest Validation** - Evaluate historical analysis accuracy, query direction win rate and simulated returns
@@ -1182,6 +1214,7 @@ FastAPI provides RESTful API service for configuration management and triggering
 > Note: `/api/v1/analysis/market-review` responses and persisted history include a structured `market_review_payload` with fields like `market_scope`, `sections`, `sectors`, `news`, `market_light`, `indices`, etc. Web rendering and history detail use the same structure and fall back to raw `markdown_report` only if the structure is unavailable.
 > Note: `market_review_payload.breadth` is emitted only when breadth data is truly available. For markets/feeds without usable breadth, the field is omitted and UI should display `No data` (not a misleading zero value).
 > Note: when `/api/v1/analysis/market-review` returns a `task_id`, the WebUI polls `GET /api/v1/analysis/status/{task_id}`. The UI renders clear `pending/processing` progress, shows completion feedback when status becomes `completed`, and surfaces `error` content on `failed`.
+> Note: filter market-review-only history via `GET /api/v1/history` with `stock_code=MARKET&report_type=market_review` to avoid mixing with regular stock history.
 > Note: `GET /api/v1/history/{record_id}/diagnostics` accepts either the history primary key ID or `query_id`, and returns a `normal/degraded/failed/unknown` summary, key pipeline components, and sanitized `copy_text`. Older reports without `context_snapshot.diagnostics` return `unknown` without affecting normal report reads.
 > Note: `GET /api/v1/history` list summaries can be paginated by `stock_code` for same-stock history and now include optional trend, summary, model, and analysis-time price/change fields. Older rows without persisted snapshots return empty values. The Web report page's "History Trend" drawer reuses this endpoint.
 > Issue #1520 compatibility note: The `model`/`model_used` returned here is read-only historical snapshot metadata from each record, used only for trend drawer/history display. It does not alter runtime model/model-provider/base URL resolution, config migration, or cleanup semantics in the analysis path. Rollback is by reverting this commit; history query, API response shapes, and UI drawer consumption remain compatible.
