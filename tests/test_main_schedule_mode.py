@@ -96,6 +96,22 @@ class MainScheduleModeTestCase(unittest.TestCase):
         defaults.update(overrides)
         return _DummyConfig(**defaults)
 
+    def test_public_webui_bind_warns_when_auth_is_disabled(self) -> None:
+        with patch("src.auth.is_auth_enabled", return_value=False), \
+             patch("main.logger.warning") as warning_log:
+            main._warn_if_public_webui_without_auth("0.0.0.0")
+
+        warning_log.assert_called_once()
+        self.assertIn("WEBUI_HOST=%s", warning_log.call_args.args[0])
+        self.assertEqual(warning_log.call_args.args[1], "0.0.0.0")
+
+    def test_loopback_webui_bind_does_not_warn_when_auth_is_disabled(self) -> None:
+        with patch("src.auth.is_auth_enabled", return_value=False), \
+             patch("main.logger.warning") as warning_log:
+            main._warn_if_public_webui_without_auth("127.0.0.1")
+
+        warning_log.assert_not_called()
+
     def test_schedule_mode_ignores_cli_stock_snapshot(self) -> None:
         args = self._make_args(schedule=True, stocks="600519,000001")
         config = self._make_config(schedule_enabled=False)
