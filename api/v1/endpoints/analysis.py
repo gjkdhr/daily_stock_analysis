@@ -144,10 +144,16 @@ def _run_market_review_background(
             "send_notification": send_notification,
             "override_region": override_region,
             "return_structured": True,
-            "config": runtime_config,
+            "trigger_source": "api",
         }
         if query_id:
             review_kwargs["query_id"] = query_id
+        logger.info(
+            "[MarketReview] component=market_review action=background_start "
+            "trigger_source=api task_id=%s region=%s",
+            query_id or "-",
+            override_region or getattr(runtime_config, "market_review_region", "cn") or "cn",
+        )
         report = run_market_review(**review_kwargs)
         if not report:
             raise RuntimeError("大盘复盘未返回可持久化报告")
@@ -495,6 +501,13 @@ def trigger_market_review(
 
     try:
         task_id = uuid.uuid4().hex
+        logger.info(
+            "[MarketReview] component=market_review action=submit trigger_source=api "
+            "task_id=%s region=%s send_notification=%s",
+            task_id,
+            getattr(runtime_config, "market_review_region", "cn") or "cn",
+            request.send_notification,
+        )
         task = get_task_queue().submit_background_task(
             lambda: _run_market_review_background(
                 request.send_notification,

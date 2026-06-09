@@ -587,6 +587,11 @@ def run_full_analysis(
             and not args.no_market_review
             and effective_region != ''
         ):
+            schedule_mode = bool(
+                getattr(args, 'schedule', False)
+                or getattr(config, 'schedule_enabled', False)
+            )
+            review_trigger_source = "schedule" if schedule_mode else "cli"
             review_result = _run_market_review_with_shared_lock(
                 config,
                 run_market_review,
@@ -596,6 +601,7 @@ def run_full_analysis(
                 send_notification=not args.no_notify,
                 merge_notification=merge_notification,
                 override_region=effective_region,
+                trigger_source=review_trigger_source,
             )
             # 如果有结果，赋值给 market_report 用于后续飞书文档生成
             if review_result:
@@ -965,6 +971,7 @@ def main() -> int:
                 search_service=search_service,
                 send_notification=not args.no_notify,
                 override_region=effective_region,
+                trigger_source="cli",
             )
             return 0
 

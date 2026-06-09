@@ -194,6 +194,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         call_kwargs = run_market_review.call_args.kwargs
         self.assertEqual(call_kwargs["send_notification"], True)
         self.assertIsNone(call_kwargs["override_region"])
+        self.assertEqual(call_kwargs["trigger_source"], "api")
         runtime_config = call_kwargs.get("config")
         self.assertIsNotNone(runtime_config)
         self.assertEqual(getattr(runtime_config, "report_language", None), "en")
@@ -246,6 +247,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         call_kwargs = run_market_review.call_args.kwargs
         runtime_config = call_kwargs.get("config")
         self.assertEqual(getattr(runtime_config, "report_language", None), "en")
+        self.assertEqual(call_kwargs["trigger_source"], "api")
 
     def test_trigger_market_review_rejects_duplicate_submission(self) -> None:
         if trigger_market_review is None or analysis_endpoint_module is None:
@@ -376,6 +378,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             send_notification=False,
             override_region="cn,us",
             return_structured=True,
+            trigger_source="api",
         )
 
     def test_market_review_runtime_initializes_analyzer_for_litellm_provider(self) -> None:
@@ -430,6 +433,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             send_notification=False,
             override_region="cn",
             return_structured=True,
+            trigger_source="api",
         )
 
     def test_run_market_review_uses_request_scoped_config_language(self) -> None:
