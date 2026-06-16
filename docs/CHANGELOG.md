@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [改进] 运行流 active task 增加 provider 与 LLM started 实时事件，长耗时步骤开始时先显示 running 卡片，完成后复用同一节点更新结果，避免重复卡片。
 - [修复] 运行流为筹码分布补齐 provider started/result 事件，个股分析触发筹码数据源调用时可显示“筹码结构”运行卡片并记录降级尝试。
 - [修复] 修复个股运行流活跃任务后期 LLM/通知卡片临时重复、数据源聚合卡片过早显示成功，并为个股所属板块补齐运行流卡片。
+- [新功能] #1649 新增 Token 用量监控看板与 `/api/v1/usage/dashboard` 接口，展示 LLM 调用总量、Prompt/Completion 拆分、模型用量、调用类型分布和最近调用明细。
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [修复] 发布说明生成查询 PR 作者失败时保留降级并输出包含 PR 编号和异常类型的 warning，便于排查 token、权限、网络或 GitHub API 异常。
