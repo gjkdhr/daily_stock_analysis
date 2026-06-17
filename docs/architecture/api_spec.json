@@ -450,7 +450,7 @@
           "SystemConfig"
         ],
         "summary": "获取系统配置",
-        "description": "读取当前系统配置并返回分类后的字段列表。敏感字段返回真实值，前端自行控制显示/隐藏。",
+        "description": "读取当前系统配置并返回分类后的显示值。服务端掩码的敏感字段可能返回 mask_token；客户端应结合 raw_value_exists 与 is_masked 判断。",
         "operationId": "getSystemConfig",
         "parameters": [
           {
@@ -2585,14 +2585,15 @@
           },
           "value": {
             "type": "string",
-            "description": "当前配置值（敏感字段返回真实值）"
+            "description": "当前配置值；敏感字段可能返回掩码，真实值不保证返回，客户端应结合 raw_value_exists 与 is_masked 判断"
           },
           "raw_value_exists": {
             "type": "boolean",
-            "description": "敏感字段是否存在真实值（不返回真实值）"
+            "description": "保存配置中是否存在该 key 的原始值；为 false 时 value 可能来自默认值或运行时环境，敏感运行时值仍可能被服务端掩码"
           },
           "is_masked": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "value 是否为服务端掩码显示值"
           },
           "schema": {
             "$ref": "#/components/schemas/SystemConfigFieldSchema"

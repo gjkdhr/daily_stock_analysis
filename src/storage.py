@@ -42,6 +42,7 @@ from sqlalchemy import (
     desc,
     event,
     func,
+    inspect,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import (
@@ -686,7 +687,89 @@ class LLMUsage(Base):
     prompt_tokens = Column(Integer, nullable=False, default=0)
     completion_tokens = Column(Integer, nullable=False, default=0)
     total_tokens = Column(Integer, nullable=False, default=0)
+
+    # Sanitized provider usage snapshot; raw prompts, messages, headers, and
+    # tokenizer free-text fields are intentionally not persisted here.
+    provider_usage_json = Column(Text, nullable=True)
+    provider_usage_schema_name = Column(String(64), nullable=True)
+    provider_usage_schema_version = Column(String(32), nullable=True)
+    provider_usage_observed_at = Column(String(32), nullable=True)
+
+    # Normalized telemetry values are derived from provider usage and may stay
+    # NULL when the provider payload is absent or explicitly invalid.
+    normalized_prompt_tokens = Column(Integer, nullable=True)
+    normalized_completion_tokens = Column(Integer, nullable=True)
+    normalized_total_tokens = Column(Integer, nullable=True)
+    normalized_cache_read_tokens = Column(Integer, nullable=True)
+    normalized_cache_write_tokens = Column(Integer, nullable=True)
+    normalized_cache_miss_tokens = Column(Integer, nullable=True)
+    normalized_uncached_input_tokens = Column(Integer, nullable=True)
+    normalized_cache_eligible_input_tokens = Column(Integer, nullable=True)
+    normalized_cache_hit_ratio = Column(Float, nullable=True)
+    normalized_cache_write_ratio = Column(Float, nullable=True)
+    cache_capability = Column(String(32), nullable=True)
+    cache_eligibility = Column(String(32), nullable=True)
+    cache_observation = Column(String(32), nullable=True)
+    estimated_prefix_tokens = Column(Integer, nullable=True)
+    provider_reported_prompt_tokens = Column(Integer, nullable=True)
+    provider_reported_cached_tokens = Column(Integer, nullable=True)
+    provider_min_cache_tokens = Column(Integer, nullable=True)
+    eligibility_confidence = Column(String(32), nullable=True)
+
+    # Kept nullable for schema compatibility; new writes do not store provider
+    # or proxy tokenizer free-text values.
+    tokenizer_name = Column(String(128), nullable=True)
+    tokenizer_version = Column(String(64), nullable=True)
+
+    # HMAC fingerprints let deployments compare message shapes without storing
+    # raw prompt/message content.
+    messages_hmac = Column(String(64), nullable=True)
+    system_message_hmac = Column(String(64), nullable=True)
+    user_message_hmac = Column(String(64), nullable=True)
+    hmac_key_version = Column(String(64), nullable=True)
+    hmac_domain = Column(String(32), nullable=True)
+    hash_scope = Column(String(32), nullable=True)
     called_at = Column(DateTime, default=datetime.now, index=True)
+
+
+_LLM_USAGE_TELEMETRY_COLUMN_SQL: Dict[str, str] = {
+    "provider_usage_json": "TEXT",
+    "provider_usage_schema_name": "VARCHAR(64)",
+    "provider_usage_schema_version": "VARCHAR(32)",
+    "provider_usage_observed_at": "VARCHAR(32)",
+    "normalized_prompt_tokens": "INTEGER",
+    "normalized_completion_tokens": "INTEGER",
+    "normalized_total_tokens": "INTEGER",
+    "normalized_cache_read_tokens": "INTEGER",
+    "normalized_cache_write_tokens": "INTEGER",
+    "normalized_cache_miss_tokens": "INTEGER",
+    "normalized_uncached_input_tokens": "INTEGER",
+    "normalized_cache_eligible_input_tokens": "INTEGER",
+    "normalized_cache_hit_ratio": "FLOAT",
+    "normalized_cache_write_ratio": "FLOAT",
+    "cache_capability": "VARCHAR(32)",
+    "cache_eligibility": "VARCHAR(32)",
+    "cache_observation": "VARCHAR(32)",
+    "estimated_prefix_tokens": "INTEGER",
+    "provider_reported_prompt_tokens": "INTEGER",
+    "provider_reported_cached_tokens": "INTEGER",
+    "provider_min_cache_tokens": "INTEGER",
+    "eligibility_confidence": "VARCHAR(32)",
+    "tokenizer_name": "VARCHAR(128)",
+    "tokenizer_version": "VARCHAR(64)",
+    "messages_hmac": "VARCHAR(64)",
+    "system_message_hmac": "VARCHAR(64)",
+    "user_message_hmac": "VARCHAR(64)",
+    "hmac_key_version": "VARCHAR(64)",
+    "hmac_domain": "VARCHAR(32)",
+    "hash_scope": "VARCHAR(32)",
+}
+_LLM_USAGE_INTEGER_TELEMETRY_COLUMNS = {
+    column
+    for column, column_type in _LLM_USAGE_TELEMETRY_COLUMN_SQL.items()
+    if column_type == "INTEGER"
+}
+_LLM_USAGE_DROPPED_FREE_TEXT_COLUMNS = {"tokenizer_name", "tokenizer_version"}
 
 
 class AlertRuleRecord(Base):
@@ -930,6 +1013,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
 
             # 创建所有表
             Base.metadata.create_all(self._engine)
+            self._ensure_llm_usage_telemetry_columns()
             self._ensure_schema_migration_record()
 
             self._initialized = True
@@ -974,6 +1058,55 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             raise
         finally:
             session.close()
+
+    def _ensure_llm_usage_telemetry_columns(self) -> None:
+        """Add nullable P0a usage telemetry columns to existing SQLite DBs."""
+        if not self._is_sqlite_engine:
+            return
+        try:
+            existing = {
+                column["name"]
+                for column in inspect(self._engine).get_columns(LLMUsage.__tablename__)
+            }
+        except Exception as exc:
+            logger.warning(
+                "[LLM usage] failed to inspect telemetry columns; "
+                "skipping best-effort SQLite telemetry column backfill: %s",
+                exc,
+            )
+            return
+
+        max_retries = self._sqlite_write_retry_max
+        for column, column_type in _LLM_USAGE_TELEMETRY_COLUMN_SQL.items():
+            if column in existing:
+                continue
+            for attempt in range(max_retries + 1):
+                try:
+                    with self._engine.begin() as connection:
+                        connection.exec_driver_sql(
+                            f"ALTER TABLE {LLMUsage.__tablename__} "
+                            f"ADD COLUMN {column} {column_type}"
+                        )
+                    existing.add(column)
+                    break
+                except OperationalError as exc:
+                    if self._is_sqlite_duplicate_column_error(exc, column):
+                        existing.add(column)
+                        break
+                    if self._is_sqlite_locked_error(exc) and attempt < max_retries:
+                        delay = self._sqlite_write_retry_base_delay * (2 ** attempt)
+                        logger.warning(
+                            "[LLM usage] SQLite telemetry column backfill locked, "
+                            "retrying: %s (%s/%s, %.2fs)",
+                            column,
+                            attempt + 1,
+                            max_retries,
+                            delay,
+                        )
+                        if delay > 0:
+                            time.sleep(delay)
+                        continue
+                    raise
 
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
@@ -1085,6 +1218,11 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 "database table is locked",
             )
         )
+
+    @staticmethod
+    def _is_sqlite_duplicate_column_error(exc: OperationalError, column: str) -> bool:
+        err_text = str(getattr(exc, "orig", exc)).lower()
+        return "duplicate column name" in err_text and column.lower() in err_text
 
     @staticmethod
     def _normalize_daily_date(value: Any) -> Any:
@@ -2613,16 +2751,20 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
         completion_tokens: int,
         total_tokens: int,
         stock_code: Optional[str] = None,
+        **telemetry: Any,
     ) -> None:
         """Append one LLM call record to llm_usage."""
-        row = LLMUsage(
-            call_type=call_type,
-            model=model or "unknown",
-            stock_code=stock_code,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-        )
+        row_values: Dict[str, Any] = {
+            "call_type": call_type,
+            "model": model or "unknown",
+            "stock_code": stock_code,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        }
+        for column in _LLM_USAGE_TELEMETRY_COLUMN_SQL:
+            row_values[column] = None if column in _LLM_USAGE_DROPPED_FREE_TEXT_COLUMNS else telemetry.get(column)
+        row = LLMUsage(**row_values)
         with self.session_scope() as session:
             session.add(row)
 
@@ -2777,17 +2919,78 @@ def persist_llm_usage(
 ) -> None:
     """Fire-and-forget: write one LLM call record to llm_usage. Never raises."""
     try:
+        usage = usage or {}
+        prompt_tokens = _coerce_llm_usage_non_negative_int(usage.get("prompt_tokens")) or 0
+        completion_tokens = _coerce_llm_usage_non_negative_int(usage.get("completion_tokens")) or 0
+        total_tokens = _coerce_llm_usage_non_negative_int(usage.get("total_tokens")) or 0
+        telemetry = {
+            column: usage.get(column)
+            for column in _LLM_USAGE_TELEMETRY_COLUMN_SQL
+        }
+        for column in _LLM_USAGE_INTEGER_TELEMETRY_COLUMNS:
+            telemetry[column] = _coerce_llm_usage_non_negative_int(telemetry.get(column))
+        telemetry["normalized_prompt_tokens"] = (
+            telemetry.get("normalized_prompt_tokens")
+            if telemetry.get("normalized_prompt_tokens") is not None
+            else prompt_tokens
+        )
+        telemetry["normalized_completion_tokens"] = (
+            telemetry.get("normalized_completion_tokens")
+            if telemetry.get("normalized_completion_tokens") is not None
+            else completion_tokens
+        )
+        telemetry["normalized_total_tokens"] = (
+            telemetry.get("normalized_total_tokens")
+            if telemetry.get("normalized_total_tokens") is not None
+            else total_tokens
+        )
+        has_usage_payload = bool(usage.get("provider_usage_json")) or any(
+            key in usage
+            for key in (
+                "prompt_tokens",
+                "completion_tokens",
+                "total_tokens",
+                "normalized_prompt_tokens",
+                "normalized_completion_tokens",
+                "normalized_total_tokens",
+            )
+        )
+        telemetry["cache_capability"] = usage.get("cache_capability") or "unknown"
+        telemetry["cache_eligibility"] = usage.get("cache_eligibility") or "unknown"
+        telemetry["cache_observation"] = usage.get("cache_observation") or (
+            "no_usage" if not has_usage_payload else "unknown"
+        )
         db = DatabaseManager.get_instance()
         db.record_llm_usage(
             call_type=call_type,
             model=model,
-            prompt_tokens=usage.get("prompt_tokens", 0) or 0,
-            completion_tokens=usage.get("completion_tokens", 0) or 0,
-            total_tokens=usage.get("total_tokens", 0) or 0,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
             stock_code=stock_code,
+            **telemetry,
         )
     except Exception as exc:
         logging.getLogger(__name__).warning("[LLM usage] failed to persist usage record: %s", exc)
+
+
+def _coerce_llm_usage_non_negative_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        if value < 0 or not value.is_integer():
+            return None
+        return int(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or not text.isdigit():
+            return None
+        return int(text)
+    return None
 
 
 if __name__ == "__main__":
