@@ -42,6 +42,7 @@ from src.config import (
 from src.llm.generation_params import apply_litellm_generation_params
 from src.llm.errors import call_litellm_with_param_recovery
 from src.llm.usage import (
+    attach_legacy_message_stability_audit,
     attach_message_hmacs,
     extract_usage_payload,
     normalize_litellm_usage,
@@ -62,7 +63,7 @@ from src.report_language import (
 )
 from src.schemas.decision_action import build_action_fields
 from src.schemas.report_schema import AnalysisReportSchema
-from src.market_context import get_market_role, get_market_guidelines
+from src.market_context import detect_market, get_market_role, get_market_guidelines
 from src.services.daily_market_context import format_daily_market_context_prompt_section
 from src.market_phase_prompt import format_market_phase_prompt_section
 
@@ -162,6 +163,50 @@ def _should_hide_regular_session_ohlc(context: Dict[str, Any]) -> bool:
         context,
         phase_context,
     )
+
+
+def _legacy_market_group(stock_code: Any) -> str:
+    code = str(stock_code or "").strip()
+    if not code or code.lower() == "unknown":
+        return "unknown"
+    market = detect_market(code)
+    return market if market in {"cn", "hk", "us"} else "unknown"
+
+
+def _legacy_audit_marker_specs(
+    context: Dict[str, Any],
+    *,
+    code: str,
+    stock_name: str,
+    report_language: str,
+    news_context: Optional[str],
+    analysis_context_pack_summary: Optional[str],
+) -> List[Dict[str, Any]]:
+    markers: List[Dict[str, Any]] = []
+
+    def add(marker_name: str, value: Any) -> None:
+        if value is None:
+            return
+        text = str(value).strip()
+        if not text:
+            return
+        markers.append(
+            {
+                "marker_name": marker_name,
+                "message_role": "user",
+                "text": text,
+            }
+        )
+
+    add("stock_code", code)
+    add("stock_name", stock_name)
+    add("analysis_date", context.get("date"))
+    add("market_phase", "## Market Phase Context" if report_language == "en" else "## 市场阶段上下文")
+    add("daily_market_context", "## Daily Market Context" if report_language == "en" else "## 大盘环境摘要")
+    add("analysis_context_pack", analysis_context_pack_summary)
+    add("quote", "## 📈 技术面数据")
+    add("news_context", "## 📰 舆情情报" if news_context else None)
+    return markers
 
 
 class _LiteLLMStreamError(RuntimeError):
@@ -2498,6 +2543,7 @@ class GeminiAnalyzer:
         stream: bool = False,
         stream_progress_callback: Optional[Callable[[int], None]] = None,
         response_validator: Optional[Callable[[str], None]] = None,
+        audit_context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[str, str, Dict[str, Any]]:
         """Call LLM via litellm with fallback across configured models.
 
@@ -2546,6 +2592,23 @@ class GeminiAnalyzer:
             usage_model, usage_provider = resolved_model_provider_identity(model, recovery_model_list)
 
             try:
+                def _attach_usage_audit(
+                    usage: Dict[str, Any],
+                    messages: List[Dict[str, Any]],
+                ) -> Dict[str, Any]:
+                    if audit_context is None:
+                        return attach_message_hmacs(usage, messages)
+                    effective_audit_context = dict(audit_context)
+                    effective_audit_context["provider"] = usage_provider
+                    effective_audit_context["transport"] = (
+                        effective_audit_context.get("transport") or "litellm"
+                    )
+                    return attach_legacy_message_stability_audit(
+                        usage,
+                        messages,
+                        effective_audit_context,
+                    )
+
                 model_short = model.split("/")[-1] if "/" in model else model
                 extra = get_thinking_extra_body(model_short)
                 call_kwargs: Dict[str, Any] = {
@@ -2630,7 +2693,7 @@ class GeminiAnalyzer:
                 if _stream_text is not None:
                     last_response_text = _stream_text
                     last_model = model
-                    _stream_usage = attach_message_hmacs(_stream_usage, call_kwargs["messages"])
+                    _stream_usage = _attach_usage_audit(_stream_usage, call_kwargs["messages"])
                     last_usage = _stream_usage
                     if response_validator is not None:
                         response_validator(_stream_text)
@@ -2652,12 +2715,15 @@ class GeminiAnalyzer:
 
                 content = self._extract_completion_text(response)
                 if content:
+                    usage_messages = None if audit_context is not None else call_kwargs["messages"]
                     usage = self._normalize_usage(
                         extract_usage_payload(response),
                         model=usage_model or model,
                         provider=usage_provider,
-                        messages=call_kwargs["messages"],
+                        messages=usage_messages,
                     )
+                    if audit_context is not None:
+                        usage = _attach_usage_audit(usage, call_kwargs["messages"])
                     last_response_text = content
                     last_model = model
                     last_usage = usage
@@ -2748,6 +2814,7 @@ class GeminiAnalyzer:
         config = self._get_runtime_config()
         report_language = normalize_report_language(getattr(config, "report_language", "zh"))
         system_prompt = self._get_analysis_system_prompt(report_language, stock_code=code)
+        skill_instructions, default_skill_policy, use_legacy_default_prompt = self._get_skill_prompt_sections()
         
         # 请求前增加延时（防止连续请求触发限流）
         request_delay = config.gemini_request_delay
@@ -2792,6 +2859,26 @@ class GeminiAnalyzer:
                 report_language=report_language,
                 analysis_context_pack_summary=analysis_context_pack_summary,
             )
+            legacy_audit_context = {
+                "language": report_language,
+                "market_group": _legacy_market_group(code),
+                "analysis_mode": "stock_analysis",
+                "legacy_prompt_mode": "legacy_default" if use_legacy_default_prompt else "skill_aware",
+                "skill_config": {
+                    "skill_instructions": skill_instructions,
+                    "default_skill_policy": default_skill_policy,
+                    "use_legacy_default_prompt": use_legacy_default_prompt,
+                },
+                "transport": "litellm",
+                "dynamic_markers": _legacy_audit_marker_specs(
+                    context,
+                    code=code,
+                    stock_name=name,
+                    report_language=report_language,
+                    news_context=news_context,
+                    analysis_context_pack_summary=analysis_context_pack_summary,
+                ),
+            }
             
             config = self._get_runtime_config()
             model_name = config.litellm_model or "unknown"
@@ -2829,6 +2916,7 @@ class GeminiAnalyzer:
                         stream=True,
                         stream_progress_callback=stream_progress_callback,
                         response_validator=self._validate_json_response,
+                        audit_context=legacy_audit_context,
                     )
                 except _AllModelsFailedError as exc:
                     if exc.last_response_text is not None:

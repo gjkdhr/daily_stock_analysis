@@ -2,13 +2,23 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { decisionSignalsApi } from '../../api/decisionSignals';
 import { UiLanguageProvider } from '../../contexts/UiLanguageContext';
-import type { DecisionSignalItem, DecisionSignalListResponse } from '../../types/decisionSignals';
+import type {
+  DecisionSignalFeedbackItem,
+  DecisionSignalItem,
+  DecisionSignalListResponse,
+  DecisionSignalOutcomeListResponse,
+  DecisionSignalOutcomeStatsResponse,
+} from '../../types/decisionSignals';
 import DecisionSignalsPage from '../DecisionSignalsPage';
 
 vi.mock('../../api/decisionSignals', () => ({
   decisionSignalsApi: {
     list: vi.fn(),
     getLatest: vi.fn(),
+    getOutcomeStats: vi.fn(),
+    getSignalOutcomes: vi.fn(),
+    getFeedback: vi.fn(),
+    putFeedback: vi.fn(),
     updateStatus: vi.fn(),
   },
 }));
@@ -69,6 +79,58 @@ function listResponse(items: DecisionSignalItem[] = [signal], total = items.leng
   };
 }
 
+const outcomeStats: DecisionSignalOutcomeStatsResponse = {
+  engineVersion: 'decision-signal-v1',
+  horizons: null,
+  statuses: ['active', 'expired', 'invalidated', 'closed'],
+  total: 3,
+  completed: 2,
+  unable: 1,
+  hit: 1,
+  miss: 1,
+  neutral: 0,
+  hitRatePct: 50,
+  avgStockReturnPct: 2.5,
+  unableReasons: { missing_anchor_price: 1 },
+  breakdowns: {},
+};
+
+const outcomeList: DecisionSignalOutcomeListResponse = {
+  items: [
+    {
+      id: 31,
+      signalId: 7,
+      horizon: '3d',
+      engineVersion: 'decision-signal-v1',
+      evalStatus: 'completed',
+      outcome: 'hit',
+      directionExpected: 'not_down',
+      directionCorrect: true,
+      anchorDate: '2024-01-02',
+      evalWindowDays: 3,
+      startPrice: 100,
+      endClose: 105,
+      stockReturnPct: 5,
+      action: 'hold',
+      market: 'cn',
+      planQuality: 'complete',
+      dataQualityLevel: 'good',
+      holdingState: 'holding',
+    },
+  ],
+  total: 1,
+  page: 1,
+  pageSize: 100,
+};
+
+const emptyFeedback: DecisionSignalFeedbackItem = {
+  signalId: 7,
+  feedbackValue: null,
+  reasonCode: null,
+  note: null,
+  source: null,
+};
+
 function renderPage() {
   return render(
     <UiLanguageProvider>
@@ -91,6 +153,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(decisionSignalsApi.list).mockResolvedValue(listResponse());
   vi.mocked(decisionSignalsApi.getLatest).mockResolvedValue(listResponse([signal]));
+  vi.mocked(decisionSignalsApi.getOutcomeStats).mockResolvedValue(outcomeStats);
+  vi.mocked(decisionSignalsApi.getSignalOutcomes).mockResolvedValue(outcomeList);
+  vi.mocked(decisionSignalsApi.getFeedback).mockResolvedValue(emptyFeedback);
+  vi.mocked(decisionSignalsApi.putFeedback).mockResolvedValue({
+    ...emptyFeedback,
+    feedbackValue: 'useful',
+    source: 'web',
+  });
   vi.mocked(decisionSignalsApi.updateStatus).mockResolvedValue({ ...signal, status: 'invalidated' });
 });
 
@@ -107,6 +177,8 @@ describe('DecisionSignalsPage', () => {
       }));
     });
     expect(screen.getByText('贵州茅台')).toBeInTheDocument();
+    expect(await screen.findByText('信号表现统计')).toBeInTheDocument();
+    expect(screen.getByText('50%')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '查看 贵州茅台 AI 建议详情' })).toBeInTheDocument();
     expect(screen.getByText('贵州茅台').closest('button')).toBeNull();
     expect(screen.getByText('放量下跌风险')).toBeInTheDocument();
@@ -277,6 +349,8 @@ describe('DecisionSignalsPage', () => {
     expect(screen.getAllByText('贵州茅台')).toHaveLength(2);
     expect(within(dialog).getByText('趋势保持')).toBeInTheDocument();
     expect(within(dialog).getByText('#3001')).toBeInTheDocument();
+    expect(await within(dialog).findByText('命中')).toBeInTheDocument();
+    expect(within(dialog).getByText('暂无反馈')).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole('button', { name: '标记失效' }));
     expect(await screen.findByRole('heading', { name: '更新信号状态' })).toBeInTheDocument();
@@ -288,6 +362,63 @@ describe('DecisionSignalsPage', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.getByText('共 0 条信号')).toBeInTheDocument();
     expect(screen.getByText('暂无决策信号')).toBeInTheDocument();
+  });
+
+  it('submits useful feedback from the details drawer', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '查看 贵州茅台 AI 建议详情' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(await within(dialog).findByRole('button', { name: '有用' }));
+
+    await waitFor(() => {
+      expect(decisionSignalsApi.putFeedback).toHaveBeenCalledWith(7, {
+        feedbackValue: 'useful',
+        source: 'web',
+      });
+    });
+    await waitFor(() => {
+      expect(within(dialog).getAllByText('有用').length).toBeGreaterThan(1);
+    });
+  });
+
+  it('ignores stale feedback submit responses after selecting another signal', async () => {
+    const feedbackSave = deferredPromise<DecisionSignalFeedbackItem>();
+    const nextSignal = makeSignal({
+      id: 8,
+      stockCode: 'AAPL',
+      stockName: 'Apple',
+      market: 'us',
+      reason: 'Second signal reason',
+    });
+    vi.mocked(decisionSignalsApi.list).mockResolvedValueOnce(listResponse([signal, nextSignal], 2));
+    vi.mocked(decisionSignalsApi.getFeedback).mockImplementation(async (signalId: number) => ({
+      ...emptyFeedback,
+      signalId,
+    }));
+    vi.mocked(decisionSignalsApi.putFeedback).mockReturnValueOnce(feedbackSave.promise);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '查看 贵州茅台 AI 建议详情' }));
+    let dialog = await screen.findByRole('dialog');
+    fireEvent.click(await within(dialog).findByRole('button', { name: '有用' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看 Apple AI 建议详情' }));
+    dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByText('Second signal reason')).toBeInTheDocument();
+
+    await act(async () => {
+      feedbackSave.resolve({
+        ...emptyFeedback,
+        feedbackValue: 'useful',
+        source: 'web',
+      });
+      await feedbackSave.promise;
+    });
+
+    await waitFor(() => {
+      expect(within(dialog).getByText('暂无反馈')).toBeInTheDocument();
+      expect(within(dialog).getAllByText('有用')).toHaveLength(1);
+    });
   });
 
   it('closes a list-sourced drawer when filters remove the selected signal', async () => {

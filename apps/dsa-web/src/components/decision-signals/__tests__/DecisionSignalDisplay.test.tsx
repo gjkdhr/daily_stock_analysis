@@ -103,4 +103,52 @@ describe('DecisionSignalDetails', () => {
     expect(container.querySelector('[onerror]')).toBeNull();
     expect(container.querySelector('[onload]')).toBeNull();
   });
+
+  it('renders outcome results and feedback controls', () => {
+    const onFeedbackSubmit = vi.fn();
+    window.localStorage.setItem('dsa.uiLanguage', 'zh');
+    render(
+      <UiLanguageProvider>
+        <DecisionSignalDetails
+          item={signal}
+          outcomes={[
+            {
+              id: 31,
+              signalId: 7,
+              horizon: '3d',
+              engineVersion: 'decision-signal-v1',
+              evalStatus: 'completed',
+              outcome: 'hit',
+              directionExpected: 'not_down',
+              directionCorrect: true,
+              anchorDate: '2024-01-02',
+              evalWindowDays: 3,
+              startPrice: 100,
+              endClose: 105,
+              stockReturnPct: 5,
+              action: 'hold',
+              market: 'cn',
+              planQuality: 'complete',
+              dataQualityLevel: 'good',
+              holdingState: 'holding',
+            },
+          ]}
+          feedback={{
+            signalId: 7,
+            feedbackValue: 'useful',
+            reasonCode: null,
+            note: null,
+            source: 'web',
+          }}
+          onFeedbackSubmit={onFeedbackSubmit}
+        />
+      </UiLanguageProvider>,
+    );
+
+    expect(screen.getByText('后验结果')).toBeInTheDocument();
+    expect(screen.getByText('命中')).toBeInTheDocument();
+    expect(screen.getByText('5%')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '无用' }));
+    expect(onFeedbackSubmit).toHaveBeenCalledWith('not_useful');
+  });
 });

@@ -2,7 +2,14 @@ import type React from 'react';
 import { Badge, Card, JsonViewer } from '../common';
 import { useUiLanguage } from '../../contexts/UiLanguageContext';
 import type { UiLanguage, UiTextKey } from '../../i18n/uiText';
-import type { DecisionSignalItem, DecisionSignalStatus } from '../../types/decisionSignals';
+import type {
+  DecisionSignalFeedbackItem,
+  DecisionSignalFeedbackValue,
+  DecisionSignalItem,
+  DecisionSignalOutcomeItem,
+  DecisionSignalOutcomeValue,
+  DecisionSignalStatus,
+} from '../../types/decisionSignals';
 import {
   buildDecisionActionLabelMap,
   getDecisionActionLabel,
@@ -37,6 +44,12 @@ const ACTION_VARIANTS: Record<DecisionActionTone, BadgeVariant> = {
   default: 'default',
 };
 
+const OUTCOME_VARIANTS: Record<DecisionSignalOutcomeValue, BadgeVariant> = {
+  hit: 'success',
+  miss: 'danger',
+  neutral: 'warning',
+};
+
 const LOCALE_BY_LANGUAGE: Record<UiLanguage, string> = {
   zh: 'zh-CN',
   en: 'en-US',
@@ -56,6 +69,11 @@ function formatDateTime(value: string | null | undefined, language: UiLanguage):
 function formatNumber(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '-';
   return Number(value).toFixed(2).replace(/\.?0+$/, '');
+}
+
+function formatPercent(value: number | null | undefined): string {
+  const number = formatNumber(value);
+  return number === '-' ? number : `${number}%`;
 }
 
 function formatEntryRange(item: DecisionSignalItem): string {
@@ -104,6 +122,18 @@ function getActionVariant(item: DecisionSignalItem): BadgeVariant {
 
 function getMarketLabel(market: DecisionSignalItem['market'], t: (key: UiTextKey) => string): string {
   const key = `decisionSignals.market.${market}` as UiTextKey;
+  return t(key);
+}
+
+function getOutcomeLabel(value: DecisionSignalOutcomeValue | null | undefined, t: (key: UiTextKey) => string): string {
+  if (!value) return '-';
+  const key = `decisionSignals.outcome.${value}` as UiTextKey;
+  return t(key);
+}
+
+function getFeedbackLabel(value: DecisionSignalFeedbackValue | null | undefined, t: (key: UiTextKey) => string): string {
+  if (!value) return t('decisionSignals.feedbackNone');
+  const key = `decisionSignals.feedback.${value}` as UiTextKey;
   return t(key);
 }
 
@@ -189,9 +219,28 @@ const DetailRow: React.FC<DetailRowProps> = ({ label, value }) => (
 type DecisionSignalDetailsProps = {
   item: DecisionSignalItem;
   actions?: React.ReactNode;
+  outcomes?: DecisionSignalOutcomeItem[];
+  outcomesLoading?: boolean;
+  outcomesError?: string | null;
+  feedback?: DecisionSignalFeedbackItem | null;
+  feedbackLoading?: boolean;
+  feedbackSaving?: boolean;
+  feedbackError?: string | null;
+  onFeedbackSubmit?: (value: DecisionSignalFeedbackValue) => void;
 };
 
-export const DecisionSignalDetails: React.FC<DecisionSignalDetailsProps> = ({ item, actions }) => {
+export const DecisionSignalDetails: React.FC<DecisionSignalDetailsProps> = ({
+  item,
+  actions,
+  outcomes = [],
+  outcomesLoading = false,
+  outcomesError = null,
+  feedback = null,
+  feedbackLoading = false,
+  feedbackSaving = false,
+  feedbackError = null,
+  onFeedbackSubmit,
+}) => {
   const { language, t } = useUiLanguage();
   const actionLabel = getActionLabel(item, t);
   const entryRange = formatEntryRange(item);
@@ -229,6 +278,75 @@ export const DecisionSignalDetails: React.FC<DecisionSignalDetailsProps> = ({ it
           <DetailRow label={t('decisionSignals.entryRange')} value={entryRange} />
           <DetailRow label={t('decisionSignals.stopLoss')} value={formatNumber(item.stopLoss)} />
           <DetailRow label={t('decisionSignals.targetPrice')} value={formatNumber(item.targetPrice)} />
+        </div>
+      </Card>
+
+      <Card title={t('decisionSignals.outcomes')} padding="sm" className="rounded-xl">
+        {outcomesLoading ? (
+          <p className="text-sm text-secondary-text">{t('common.loading')}...</p>
+        ) : outcomesError ? (
+          <p className="text-sm text-danger">{outcomesError}</p>
+        ) : outcomes.length === 0 ? (
+          <p className="text-sm text-secondary-text">{t('decisionSignals.noOutcomes')}</p>
+        ) : (
+          <div className="grid gap-3">
+            {outcomes.map((outcome) => (
+              <div key={outcome.id} className="rounded-xl border border-border/60 bg-elevated/40 px-3 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-foreground">{outcome.horizon}</span>
+                    {outcome.outcome ? (
+                      <Badge variant={OUTCOME_VARIANTS[outcome.outcome]}>
+                        {getOutcomeLabel(outcome.outcome, t)}
+                      </Badge>
+                    ) : (
+                      <Badge variant="warning">{t('decisionSignals.outcome.unable')}</Badge>
+                    )}
+                  </div>
+                  <span className="text-xs text-secondary-text">{outcome.engineVersion}</span>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <DetailRow label={t('decisionSignals.returnPct')} value={formatPercent(outcome.stockReturnPct)} />
+                  <DetailRow label={t('decisionSignals.directionExpected')} value={outcome.directionExpected || '-'} />
+                  <DetailRow label={t('decisionSignals.unableReason')} value={outcome.unableReason || '-'} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card title={t('decisionSignals.feedbackTitle')} padding="sm" className="rounded-xl">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm text-foreground">
+              {feedbackLoading ? `${t('common.loading')}...` : getFeedbackLabel(feedback?.feedbackValue, t)}
+            </p>
+            {feedback?.reasonCode ? (
+              <p className="mt-1 text-xs text-secondary-text">{feedback.reasonCode}</p>
+            ) : null}
+            {feedbackError ? <p className="mt-2 text-sm text-danger">{feedbackError}</p> : null}
+          </div>
+          {onFeedbackSubmit ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn-secondary !px-3 !py-1.5 !text-xs"
+                disabled={feedbackSaving}
+                onClick={() => onFeedbackSubmit('useful')}
+              >
+                {t('decisionSignals.feedback.useful')}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary !px-3 !py-1.5 !text-xs"
+                disabled={feedbackSaving}
+                onClick={() => onFeedbackSubmit('not_useful')}
+              >
+                {t('decisionSignals.feedback.not_useful')}
+              </button>
+            </div>
+          ) : null}
         </div>
       </Card>
 

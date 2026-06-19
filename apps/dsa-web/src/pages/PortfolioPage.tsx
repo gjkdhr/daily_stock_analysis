@@ -111,7 +111,8 @@ function isNewerSignal(left: DecisionSignalItem | undefined, right: DecisionSign
   return getSignalTime(right) > getSignalTime(left);
 }
 
-const DECISION_SIGNAL_MARKETS = new Set<DecisionSignalMarket>(['cn', 'hk', 'us']);
+const DECISION_SIGNAL_MARKETS = new Set<DecisionSignalMarket>(['cn', 'hk', 'us', 'jp', 'kr']);
+type PortfolioAccountMarket = 'cn' | 'hk' | 'us' | 'jp' | 'kr';
 
 function toDecisionSignalMarket(value: string | null | undefined): DecisionSignalMarket | undefined {
   const normalized = String(value || '').toLowerCase();
@@ -174,7 +175,7 @@ const PortfolioPage: React.FC = () => {
   const [accountForm, setAccountForm] = useState({
     name: '',
     broker: 'Demo',
-    market: 'cn' as 'cn' | 'hk' | 'us',
+    market: 'cn' as PortfolioAccountMarket,
     baseCurrency: 'CNY',
   });
   const [costMethod, setCostMethod] = useState<PortfolioCostMethod>('fifo');
@@ -912,6 +913,8 @@ const PortfolioPage: React.FC = () => {
     }
   };
 
+  const decisionSignalRiskPreviewItems = (risk?.decisionSignalRisk?.items ?? []).slice(0, 3);
+
   return (
     <div className="portfolio-page min-h-screen space-y-4 p-4 md:p-6">
       <section className="space-y-3">
@@ -1071,11 +1074,13 @@ const PortfolioPage: React.FC = () => {
             <select
               className={PORTFOLIO_SELECT_CLASS}
               value={accountForm.market}
-              onChange={(e) => setAccountForm((prev) => ({ ...prev, market: e.target.value as 'cn' | 'hk' | 'us' }))}
+              onChange={(e) => setAccountForm((prev) => ({ ...prev, market: e.target.value as PortfolioAccountMarket }))}
             >
               <option value="cn">市场：A 股（cn）</option>
               <option value="hk">市场：港股（hk）</option>
               <option value="us">市场：美股（us）</option>
+              <option value="jp">市场：日股（jp）</option>
+              <option value="kr">市场：韩股（kr）</option>
             </select>
             <button type="submit" className="btn-secondary text-sm" disabled={accountCreating}>
               {accountCreating ? '创建中...' : '创建账户'}
@@ -1261,7 +1266,7 @@ const PortfolioPage: React.FC = () => {
         />
       ) : null}
 
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
         <Card padding="md">
           <h3 className="text-sm font-semibold text-foreground mb-2">{text.drawdownMonitor}</h3>
           <div className="text-xs text-secondary space-y-1">
@@ -1284,6 +1289,32 @@ const PortfolioPage: React.FC = () => {
             <div>{text.accountCount}: {snapshot?.accountCount ?? 0}</div>
             <div>{text.currency}: {snapshot?.currency || 'CNY'}</div>
             <div>{text.costMethodShort}: {(snapshot?.costMethod || costMethod).toUpperCase()}</div>
+          </div>
+        </Card>
+        <Card padding="md">
+          <h3 className="text-sm font-semibold text-foreground mb-2">{text.aiRiskSignals}</h3>
+          <div className="text-xs text-secondary space-y-1">
+            {risk?.decisionSignalRisk?.available === false ? (
+              <div className="text-warning">{text.aiRiskUnavailable}</div>
+            ) : (
+              <>
+                <div>{text.aiRiskTotal}: {risk?.decisionSignalRisk?.total ?? 0}</div>
+                <div>
+                  {text.sellSignals}: {risk?.decisionSignalRisk?.actions?.sell ?? 0} · {text.reduceSignals}: {risk?.decisionSignalRisk?.actions?.reduce ?? 0} · {text.alertSignals}: {risk?.decisionSignalRisk?.actions?.alert ?? 0}
+                </div>
+                {decisionSignalRiskPreviewItems.length > 0 ? (
+                  <div className="space-y-1 pt-1">
+                    {decisionSignalRiskPreviewItems.map((item) => (
+                      <div key={`${item.accountId ?? 'all'}-${item.market}-${item.symbol}-${item.signal.id ?? item.signal.action}`} className="truncate text-foreground">
+                        {item.symbol} · {item.signal.actionLabel || item.signal.action || text.alert}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div>{text.noAiRiskSignals}</div>
+                )}
+              </>
+            )}
           </div>
         </Card>
       </section>

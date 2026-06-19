@@ -283,6 +283,21 @@ LLM_USAGE_HMAC_KEY_VERSION=local-v1
 - When rotating the secret, update `LLM_USAGE_HMAC_KEY_VERSION` so old and new fingerprints are not compared as if they used the same key.
 - Do not reuse the login session secret and do not commit or expose the real secret in version control, issues, logs, or screenshots.
 
+### Legacy message stability audit (P0.5a)
+
+P0.5a adds internal stability-audit fields for the ordinary stock-analysis legacy `[system, user]` message path. The fields are written only to local `llm_usage` records. They reuse the message HMAC pipeline above and do not change prompt text, message order, provider request parameters, cache hints, model output, fallback order, the public Usage API, or Web pages.
+
+The added fields are for maintainer diagnostics only:
+
+- `language`, `market_group`, `analysis_mode`, `legacy_prompt_mode`, `provider`, `transport`, and `message_count` describe low-sensitivity routing context for the stock-analysis call.
+- `skill_config_hmac` is an HMAC-SHA256 over the resolved skill prompt fragments, default skill policy, and legacy prompt mode. It lets maintainers tell whether the system message changes with skill configuration without storing raw skill text.
+- `known_dynamic_marker_positions` is a JSON string. Each entry stores only `marker_name`, `message_role`, and `char_offset`; it does not store stock codes, stock names, dates, news body text, quote values, headers, response text, or prompt snippets.
+- `estimated_total_prompt_tokens`, `approx_common_prefix_chars`, and `approx_common_prefix_tokens` use the repository's stable canonical render: messages are concatenated in order as `role + "\n" + content` with a fixed separator. This is not claimed to match provider wire bytes.
+- `char_offset` is measured inside the matching message `content`. `approx_common_prefix_chars` is the character count from canonical-render start to the first known dynamic marker. When no marker is found, common-prefix fields stay `NULL`.
+- Token estimates use `ceil(chars / 3)`. They are diagnostics only, do not replace provider usage, and are not used for cache-threshold decisions; Chinese text can be underestimated.
+
+P0.5a does not introduce PromptBlock IR, `block_id`, `stability_class`, `static_prefix_hash`, or `dynamic_context_hash`. Agent, research, and market-review paths are not wired into this audit yet.
+
 ### GitHub Actions Notes
 
 The bundled `00-daily-analysis.yml` explicitly passes the common LLM runtime fields to the job environment:

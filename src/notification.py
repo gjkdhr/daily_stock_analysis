@@ -26,6 +26,7 @@ from enum import Enum
 from src.config import Config, get_config
 from src.enums import ReportType
 from src.market_phase_summary import format_public_market_status_line, format_public_phase_pack_excerpt
+from src.services.decision_signal_summary import format_decision_signal_excerpt
 from src.notification_routing import (
     get_notification_route_config,
     split_notification_route_channels,
@@ -343,6 +344,12 @@ class NotificationService(
             getattr(result, "market_phase_summary", None),
             getattr(result, "analysis_context_pack_overview", None),
             source=getattr(result, "analysis_visibility_source", None) or "evaluator_snapshot",
+            report_language=report_language,
+        )
+
+    def _decision_signal_excerpt(self, result: AnalysisResult, report_language: str) -> str:
+        return format_decision_signal_excerpt(
+            getattr(result, "decision_signal_summary", None),
             report_language=report_language,
         )
 
@@ -1631,6 +1638,9 @@ class NotificationService(
                 f"{localize_operation_advice(r.operation_advice, report_language)} | "
                 f"{labels['score_label']} {r.sentiment_score} | {one}"
             )
+            signal_excerpt = self._decision_signal_excerpt(r, report_language)
+            if signal_excerpt:
+                lines.append(signal_excerpt)
         lines.append("")
         lines.append(f"*{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
         models = self._collect_models_used(results)
@@ -1672,6 +1682,10 @@ class NotificationService(
         excerpt = self._public_phase_pack_excerpt(result, report_language)
         if excerpt:
             lines.extend([excerpt, ""])
+
+        signal_excerpt = self._decision_signal_excerpt(result, report_language)
+        if signal_excerpt:
+            lines.extend([signal_excerpt, ""])
 
         self._append_market_snapshot(lines, result)
         

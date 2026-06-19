@@ -1304,7 +1304,7 @@ python main.py --debug
 
 #1390 P0 不会把后续信号资产字段平铺到现有 summary、历史列表、StockBar 或回测响应。#1390 P1 开始通过独立 `DecisionSignal` 资源承接 `horizon`、`plan_quality`、`status` 等更细粒度计划字段，仍不改变既有报告主契约、不回填历史、不新增配置项。
 
-### 决策信号资产（#1390 P1/P2/P3/P4）
+### 决策信号资产（#1390 P1/P2/P3/P4/P5）
 
 `DecisionSignal` 是独立后端资源，用于把 AI 建议沉淀为可查询、可去重、可更新状态的信号资产。它不替换 `operation_advice`、不扩展 `decision_type=buy|hold|sell`。#1390 P2 开始，普通个股分析和 Agent 个股分析在分析历史保存成功后，会从最终 `AnalysisResult` best-effort 提取一条 `source_type=analysis` 的信号；显式 API 或 service 调用仍然保留。
 
@@ -1332,9 +1332,17 @@ P3 开始，生命周期由 `DecisionSignalService` 统一补齐：显式传入�
 
 这些接口继承现有 `/api/v1/*` 管理员鉴权：`ADMIN_AUTH_ENABLED=true` 时必须携带有效管理员会话 Cookie；本功能不新增独立认证方式。
 
-#1390 P4 在 Web 端接入已有 `DecisionSignal` API，不新增后端契约、数据库表或配置项。侧边栏新增“AI 建议”入口 `/decision-signals`，默认展示 `status=active` 的信号，并支持按市场、股票代码、动作、市场阶段、来源和状态筛选；页面还提供按股票代码查询最新 active 信号的入口。信号详情展示动作、置信度/评分、horizon、plan_quality、market_phase、价格计划、风险、观察条件、来源报告和数据质量；Web 只允许把信号标记为 `closed`、`invalidated` 或 `archived`，不提供 terminal 状态恢复为 active，也不提供 feedback。
+#1390 P4 在 Web 端接入已有 `DecisionSignal` API，不新增后端契约、数据库表或配置项。侧边栏新增“AI 建议”入口 `/decision-signals`，默认展示 `status=active` 的信号，并支持按市场、股票代码、动作、市场阶段、来源和状态筛选；页面还提供按股票代码查询最新 active 信号的入口。信号详情展示动作、置信度/评分、horizon、plan_quality、market_phase、价格计划、风险、观察条件、来源报告和数据质量；Web 只允许把信号标记为 `closed`、`invalidated` 或 `archived`，不提供 terminal 状态恢复为 active。
+
+#1390 P5 新增信号级反馈、后验评估和统计 sidecar，不扩展 `decision_signals` 主表，也不复用绑定 `analysis_history_id` 的 `BacktestResult`。`decision_signal_feedback` 按 `signal_id` 保存最新 `useful|not_useful` 反馈、可选原因/备注和来源；`decision_signal_outcomes` 按 `(signal_id, horizon, engine_version)` 幂等保存后验结果，当前 `engine_version=decision-signal-v1`。Outcome 在评估时冻结 `action/market/market_phase/source_type/source_agent/plan_quality/data_quality_level/holding_state` 等统计维度，历史统计不依赖后续 live join 改写。删除历史报告时，会先找出 `source_type=analysis` 且绑定被删历史 ID 的信号，再清理对应 feedback/outcome 子表。
+
+P5 后验评估只支持日线可验证的 `1d/3d/5d/10d`，窗口语义是 anchor 后 1/3/5/10 根 `StockDaily` 交易 bar，不复用 `DecisionSignalService._horizon_days()` 的自然日过期语义。`anchor_date` 优先读取 `metadata.market_phase_summary.session_date`，否则使用 `created_at.date()`；anchor 当日必须存在 `StockDaily.close`，不会回退到前一交易日。动作映射为 `buy/add -> up`、`hold -> not_down`、`reduce/sell/avoid -> not_up`；`watch/alert`、`intraday/swing/long`、缺 anchor 价、forward bars 不足等会写入 `eval_status=unable` 和明确 `unable_reason`。缺 anchor 价、非法 anchor 价、forward bars 不足、缺/非法窗口收盘价属于可恢复 unable，后续默认重跑会在数据补齐后重新评估；非方向动作、不支持 horizon 和缺 anchor date 属于终态 unable，默认保持幂等跳过。自动提取运行时可额外接收 `portfolio_context.quantity`，只把低敏 `holding_state=holding|empty|unknown` 写入 metadata 供后验快照使用，不保存数量、账户或成本。
+
+P5 在 Web `/decision-signals` 页面筛选区下方展示当前 outcome engine 的整体统计卡片；详情抽屉按需读取该信号 outcomes，并可提交 useful/not useful 反馈。该页面不新增导航页，不进入 BacktestPage，也不新增后台定时任务；后验计算由 `POST /api/v1/decision-signals/outcomes/run` 显式触发。批量运行默认优先推进缺失 outcome 的信号，再重试可恢复 unable，不会让已完成或终态 unable 的最新信号长期占满 `limit`。
 
 持仓页会把 AI 建议作为非阻断增强异步加载：组合快照和风险模块先按原逻辑渲染，随后按当前快照中的唯一持仓调用 `GET /api/v1/decision-signals/latest/{stock_code}?market=<market>&limit=1` 查询 latest active 信号；不再通过 `holding_only=true` 通用列表分页扫描，也不存在固定页数截断。单个持仓 latest 查询失败时，页面保留其他已加载信号并显示可见降级提示；无匹配信号时持仓行显示空占位。匹配逻辑复用 Web 端股票代码等价规则，覆盖 A 股 `600519/SH600519/600519.SH`、港股 `00700/HK00700/00700.HK` 和美股大小写 ticker。
+
+#1390 P6 将 `DecisionSignal` 复用到告警、通知和组合风险，不新增表、迁移或配置。真实股票级告警触发会优先关联同标的 latest active 信号，并把低敏 `decision_signal_summary` 写入 `alert_triggers.diagnostics`；没有 active 信号时，worker 只创建最小 `source_type=alert`、`action=alert` 信号，`trace_id=alert-rule-<hash>` 仅用于同源重试的 best-effort 幂等去重，不覆盖 active 信号本体，且不写 `market_phase` 避免跨阶段重复。告警通知和分析通知只引用摘要中的 `action/horizon/reason/watch_conditions/risk_summary/source_report_id` 等公开字段，通知失败不影响 trigger 或信号写入。`GET /api/v1/portfolio/risk` 追加 `decision_signal_risk` 聚合块，只统计当前持仓中的 active `sell/reduce/alert` 信号，明确排除 `avoid/buy/add/hold/watch`；信号查询失败时风险接口 fail-open，Web 风险区显示降级状态。
 
 普通个股历史报告详情会在策略区后展示该报告提取出的 `source_type=analysis` 信号，查询条件为 `source_report_id=<recordId>`；无 `recordId`、大盘复盘或其他非普通个股报告不会发起该查询。空结果显示“本报告暂无决策信号”，加载失败只影响该卡片，不影响报告主体、资讯、运行诊断或透明度区展示。
 
@@ -1445,6 +1453,12 @@ FastAPI 提供 RESTful API 服务，支持配置管理和触发分析。
 | `/api/v1/history/{record_id}/flow` | GET | 查询历史报告运行流快照，普通个股和 `MARKET/market_review` 大盘复盘复用同一契约 |
 | `/api/v1/decision-signals` | POST | 显式创建或按同源键去重决策信号，返回 `{ item, created }` |
 | `/api/v1/decision-signals` | GET | 分页查询决策信号，支持股票、市场、动作、阶段、来源、状态、时间范围和 cache-only 持仓过滤 |
+| `/api/v1/decision-signals/outcomes/run` | POST | 显式触发信号后验评估，默认跳过 completed/终态 unable、重算可恢复 unable，`force=true` 重算覆盖 |
+| `/api/v1/decision-signals/outcomes` | GET | 分页查询信号后验结果 |
+| `/api/v1/decision-signals/outcomes/stats` | GET | 查询当前后验引擎统计，默认排除 archived 信号 |
+| `/api/v1/decision-signals/{signal_id}/outcomes` | GET | 查询单个信号在当前后验引擎下的结果 |
+| `/api/v1/decision-signals/{signal_id}/feedback` | GET | 查询单个信号的用户反馈；无反馈时返回 `feedback_value=null` |
+| `/api/v1/decision-signals/{signal_id}/feedback` | PUT | 写入或更新单个信号的 `useful|not_useful` 反馈 |
 | `/api/v1/decision-signals/{signal_id}` | GET | 查询单条决策信号，读取前执行懒过期 |
 | `/api/v1/decision-signals/{signal_id}/status` | PATCH | 更新决策信号状态和可选 metadata |
 | `/api/v1/decision-signals/latest/{stock_code}` | GET | 查询指定股票最新 active 决策信号 |

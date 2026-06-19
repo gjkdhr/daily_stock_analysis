@@ -284,6 +284,21 @@ LLM_USAGE_HMAC_KEY_VERSION=local-v1
 - 轮换密钥时同步更新 `LLM_USAGE_HMAC_KEY_VERSION`，避免不同密钥生成的 HMAC 被误比较。
 - 不要复用登录 session secret，也不要把真实密钥提交到版本控制或暴露在 issue、日志、截图中。
 
+### Legacy message stability audit（P0.5a）
+
+P0.5a 在普通个股分析路径为 legacy `[system, user]` message 追加内部稳定性审计字段，继续写入本地 `llm_usage`。它复用上面的 message HMAC，不修改 prompt 内容、message 顺序、provider 请求参数、cache hint、模型输出、fallback 顺序，也不扩展公开 Usage API 或 Web 页面。
+
+新增字段只用于维护者诊断：
+
+- `language`、`market_group`、`analysis_mode`、`legacy_prompt_mode`、`provider`、`transport`、`message_count` 描述本次普通个股分析调用的低敏路由上下文。
+- `skill_config_hmac` 是基于已解析 skill prompt 片段、默认 skill 策略和 legacy prompt 模式生成的 HMAC-SHA256，用于判断 system message 是否随 skill configuration 变化；不会保存 skill 原文。
+- `known_dynamic_marker_positions` 是 JSON string，只记录 `marker_name`、`message_role`、`char_offset`；不会保存股票代码、股票名称、日期、新闻正文、行情值、headers、response text 或 prompt 片段。
+- `estimated_total_prompt_tokens`、`approx_common_prefix_chars`、`approx_common_prefix_tokens` 基于项目内稳定 canonical render 估算：按 message 顺序拼接 `role + "\n" + content`，并用固定分隔符连接。该口径不声称等同 provider 真实 wire bytes。
+- `char_offset` 是 marker 在对应 message `content` 内的位置；`approx_common_prefix_chars` 是 canonical render 起点到第一个已知动态 marker 之前的字符数。没有 marker 时 common-prefix 字段为 `NULL`。
+- token 估算使用 `ceil(chars / 3)`，只作 diagnostics，不替代 provider usage，也不参与 cache threshold 判定；中文场景可能偏低。
+
+P0.5a 不引入 PromptBlock IR、`block_id`、`stability_class`、`static_prefix_hash` 或 `dynamic_context_hash`。Agent、research 与 market review 路径暂不接入该审计。
+
 ---
 
 ## 方式三：YAML 高级配置（适合老手自定义）
