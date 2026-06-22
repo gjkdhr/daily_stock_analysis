@@ -115,6 +115,7 @@ class DecisionSignalService:
         expires_to: Optional[Any] = None,
         holding_only: bool = False,
         account_id: Optional[int] = None,
+        stock_identities: Optional[List[Tuple[str, str]]] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
@@ -133,9 +134,27 @@ class DecisionSignalService:
         expires_from_dt = self._parse_datetime(expires_from)
         expires_to_dt = self._parse_datetime(expires_to)
         stock_codes = self._stock_filter_codes(stock_code, market=market_norm)
-        stock_identities = None
+        stock_identity_filters: Optional[List[Tuple[str, str]]] = None
 
-        if holding_only:
+        if stock_identities is not None:
+            # Explicit identities come from a caller-owned snapshot; skip cached holdings entirely.
+            requested_codes = set(stock_codes or [])
+            normalized_identities: set[Tuple[str, str]] = set()
+            for identity_market, identity_code in stock_identities:
+                if not str(identity_code or "").strip():
+                    continue
+                identity_market_norm = self._normalize_market(identity_market)
+                if market_norm and identity_market_norm != market_norm:
+                    continue
+                identity_code_norm = self._normalize_stock_code(identity_code, market=identity_market_norm)
+                if requested_codes and identity_code_norm not in requested_codes:
+                    continue
+                normalized_identities.add((identity_market_norm, identity_code_norm))
+            stock_identity_filters = sorted(normalized_identities)
+            stock_codes = None
+            if not stock_identity_filters:
+                return {"items": [], "total": 0, "page": safe_page, "page_size": safe_page_size}
+        elif holding_only:
             held_identities = self._cached_holding_identities(account_id=account_id)
             if market_norm:
                 held_identities = {
@@ -146,14 +165,14 @@ class DecisionSignalService:
                 held_identities = {
                     identity for identity in held_identities if identity[1] in requested_codes
                 }
-            stock_identities = sorted(held_identities)
+            stock_identity_filters = sorted(held_identities)
             stock_codes = None
-            if not stock_identities:
+            if not stock_identity_filters:
                 return {"items": [], "total": 0, "page": safe_page, "page_size": safe_page_size}
 
         rows, total = self.repo.list(
             stock_codes=stock_codes,
-            stock_identities=stock_identities,
+            stock_identities=stock_identity_filters,
             market=market_norm,
             action=action_norm,
             market_phase=market_phase_norm,
@@ -183,12 +202,13 @@ class DecisionSignalService:
             created_to=created_to_dt,
             expires_from=expires_from_dt,
             expires_to=expires_to_dt,
+            stock_identities=stock_identity_filters,
             holding_only=holding_only,
         ):
             self._backfill_analysis_signal_from_history(source_report_id_norm)
             rows, total = self.repo.list(
                 stock_codes=stock_codes,
-                stock_identities=stock_identities,
+                stock_identities=stock_identity_filters,
                 market=market_norm,
                 action=action_norm,
                 market_phase=market_phase_norm,
@@ -276,6 +296,7 @@ class DecisionSignalService:
         created_to: Optional[datetime],
         expires_from: Optional[datetime],
         expires_to: Optional[datetime],
+        stock_identities: Optional[List[Tuple[str, str]]],
         holding_only: bool,
     ) -> bool:
         """Only lazy-backfill for the exact report section query used by Web."""
@@ -296,6 +317,7 @@ class DecisionSignalService:
                 created_to,
                 expires_from,
                 expires_to,
+                stock_identities,
                 holding_only,
             )
         )

@@ -561,6 +561,73 @@ class PortfolioPr2TestCase(unittest.TestCase):
         self.assertEqual(signal_actions["300750"], "reduce")
         self.assertEqual(signal_actions["000001"], "alert")
 
+    def test_risk_report_uses_requested_snapshot_for_decision_signal_filters(self) -> None:
+        account = self.service.create_account(name="Main", broker="Demo", market="cn", base_currency="CNY")
+        aid = account["id"]
+        self.service.record_cash_ledger(
+            account_id=aid,
+            event_date=date(2026, 1, 1),
+            direction="in",
+            amount=100000.0,
+            currency="CNY",
+        )
+        self.service.record_trade(
+            account_id=aid,
+            symbol="600519",
+            trade_date=date(2026, 1, 1),
+            side="buy",
+            quantity=10,
+            price=100,
+            market="cn",
+            currency="CNY",
+        )
+        self._save_close("600519", date(2026, 1, 1), 100.0)
+        self._save_close("600519", date(2026, 1, 2), 100.0)
+        self.service.record_trade(
+            account_id=aid,
+            symbol="000001",
+            trade_date=date(2026, 1, 2),
+            side="buy",
+            quantity=10,
+            price=20,
+            market="cn",
+            currency="CNY",
+        )
+        self._save_close("000001", date(2026, 1, 2), 20.0)
+        self._create_signal("000001", "sell")
+
+        original = self.risk_service.decision_signal_service.list_signals
+        with patch.object(
+            self.risk_service.decision_signal_service,
+            "list_signals",
+            wraps=original,
+        ) as spy:
+            report = self.risk_service.get_risk_report(
+                account_id=aid,
+                as_of=date(2026, 1, 2),
+                cost_method="fifo",
+            )
+
+        block = report["decision_signal_risk"]
+        self.assertTrue(block["available"])
+        self.assertEqual(block["total"], 1)
+        self.assertEqual(block["items"][0]["symbol"], "000001")
+        self.assertEqual(block["items"][0]["signal"]["action"], "sell")
+        for call in spy.mock_calls:
+            self.assertIsNot(call.kwargs.get("holding_only"), True)
+        identity_calls = [
+            call.kwargs.get("stock_identities")
+            for call in spy.mock_calls
+            if call.kwargs.get("stock_identities") is not None
+        ]
+        observed_identities = {
+            identity
+            for ids in identity_calls
+            for identity in ids
+        }
+        self.assertIn(("cn", "000001"), observed_identities)
+        self.assertIn(("cn", "600519"), observed_identities)
+
     def test_risk_report_decision_signal_fail_open(self) -> None:
         account = self.service.create_account(name="Main", broker="Demo", market="cn", base_currency="CNY")
         aid = account["id"]

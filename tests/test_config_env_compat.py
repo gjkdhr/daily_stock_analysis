@@ -70,6 +70,38 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
 
     @patch("src.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
+    def test_schedule_times_parse_dedupe_and_fallback(
+        self, _mock_parse_litellm_yaml, _mock_setup_env
+    ):
+        with patch.dict(
+            os.environ,
+            {
+                "STOCK_LIST": "600519",
+                "SCHEDULE_TIME": "18:00",
+                "SCHEDULE_TIMES": "15:10,09:20,15:10",
+            },
+            clear=True,
+        ):
+            config = Config._load_from_env()
+
+        self.assertEqual(config.schedule_time, "18:00")
+        self.assertEqual(config.schedule_times, ["09:20", "15:10"])
+
+        with patch.dict(
+            os.environ,
+            {
+                "STOCK_LIST": "600519",
+                "SCHEDULE_TIME": "09:30",
+                "SCHEDULE_TIMES": "",
+            },
+            clear=True,
+        ):
+            config = Config._load_from_env()
+
+        self.assertEqual(config.schedule_times, [config.schedule_time])
+
+    @patch("src.config.setup_env")
+    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_alphasift_install_spec_defaults_only_when_env_missing(
         self, _mock_parse_litellm_yaml, _mock_setup_env
     ):

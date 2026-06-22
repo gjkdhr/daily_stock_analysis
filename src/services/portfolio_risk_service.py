@@ -82,7 +82,7 @@ class PortfolioRiskService:
             lookback_days=thresholds["lookback_days"],
         )
         stop_loss = self._build_stop_loss(snapshot, thresholds)
-        decision_signal_risk = self._build_decision_signal_risk(snapshot, account_id=account_id)
+        decision_signal_risk = self._build_decision_signal_risk(snapshot)
 
         return {
             "as_of": as_of_date.isoformat(),
@@ -100,21 +100,22 @@ class PortfolioRiskService:
     def _build_decision_signal_risk(
         self,
         snapshot: Dict[str, Any],
-        *,
-        account_id: Optional[int],
     ) -> Dict[str, Any]:
         try:
             held_positions = self._held_position_identities(snapshot)
             if not held_positions:
                 return self._empty_decision_signal_risk(available=True)
+            stock_identities = sorted({
+                (position["market"], position["signal_stock_code"])
+                for position in held_positions
+            })
 
             defensive_actions = set(DEFENSIVE_DECISION_SIGNAL_ACTIONS)
             latest_by_identity: Dict[Tuple[str, str], Dict[str, Any]] = {}
             page = 1
             while True:
                 response = self.decision_signal_service.list_signals(
-                    holding_only=True,
-                    account_id=account_id,
+                    stock_identities=stock_identities,
                     status="active",
                     page=page,
                     page_size=100,

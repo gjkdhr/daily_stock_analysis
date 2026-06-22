@@ -850,6 +850,9 @@ class NotificationService(
                     f"{labels['score_label']} {r.sentiment_score} | "
                     f"{localize_trend_prediction(r.trend_prediction, report_language)}"
                 )
+                signal_excerpt = self._decision_signal_excerpt(r, report_language)
+                if signal_excerpt:
+                    report_lines.append(signal_excerpt)
         else:
             report_lines.extend([f"## 📈 {labels['report_title']}", ""])
             # 逐个股票的详细分析
@@ -866,6 +869,9 @@ class NotificationService(
                     f"**Confidence：{confidence_stars}**",
                     "",
                 ])
+                signal_excerpt = self._decision_signal_excerpt(result, report_language)
+                if signal_excerpt:
+                    report_lines.extend([signal_excerpt, ""])
                 self._append_market_snapshot(report_lines, result)
                 
                 # 核心看点
@@ -1099,6 +1105,9 @@ class NotificationService(
                     f"{labels['score_label']} {r.sentiment_score} | "
                     f"{localize_trend_prediction(r.trend_prediction, report_language)}"
                 )
+                signal_excerpt = self._decision_signal_excerpt(r, report_language)
+                if signal_excerpt:
+                    report_lines.append(signal_excerpt)
             report_lines.extend([
                 "",
                 "---",
@@ -1401,6 +1410,9 @@ class NotificationService(
                     f"{labels['score_label']} {r.sentiment_score} | "
                     f"{localize_trend_prediction(r.trend_prediction, report_language)}"
                 )
+                signal_excerpt = self._decision_signal_excerpt(r, report_language)
+                if signal_excerpt:
+                    lines.append(signal_excerpt)
         else:
             for result in sorted_results:
                 signal_text, signal_emoji, _ = self._get_signal_level(result)
@@ -1420,6 +1432,10 @@ class NotificationService(
                 one_sentence = core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary
                 if one_sentence:
                     lines.append(f"📌 **{one_sentence[:80]}**")
+                    lines.append("")
+                signal_excerpt = self._decision_signal_excerpt(result, report_language)
+                if signal_excerpt:
+                    lines.append(signal_excerpt)
                     lines.append("")
                 
                 # 重要信息区（舆情+基本面）
@@ -1551,6 +1567,9 @@ class NotificationService(
                 f"{labels['score_label']}:{result.sentiment_score} | "
                 f"{localize_trend_prediction(result.trend_prediction, report_language)}"
             )
+            signal_excerpt = self._decision_signal_excerpt(result, report_language)
+            if signal_excerpt:
+                lines.append(signal_excerpt)
             
             # 操作理由（截断）
             if hasattr(result, 'buy_reason') and result.buy_reason:

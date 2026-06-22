@@ -530,16 +530,16 @@ const settingsHelpZhCN: SettingsHelpMap = {
   'settings.system.schedule': {
     title: '定时任务',
     summary: '控制是否启用每日定时分析以及启动时是否立即执行一次。',
-    usage: 'SCHEDULE_TIME 使用 HH:MM 24 小时格式；SCHEDULE_ENABLED 和 SCHEDULE_RUN_IMMEDIATELY 控制定时模式启动行为。',
+    usage: 'SCHEDULE_TIME 使用 HH:MM 24 小时格式；SCHEDULE_TIMES 可配置逗号分隔的多个 HH:MM 时间点；SCHEDULE_ENABLED 控制 runtime scheduler 是否启用。',
     valueNotes: [
-      '已运行的 schedule 模式会在下一轮调度检查中读取新的 SCHEDULE_TIME 并重建 daily job。',
-      'SCHEDULE_ENABLED 和 SCHEDULE_RUN_IMMEDIATELY 属于启动期行为，保存后不会启动、停止或重建当前 scheduler。',
+      '已运行的 schedule 模式会在下一轮调度检查中读取新的 SCHEDULE_TIME / SCHEDULE_TIMES 并重建 daily jobs。',
+      'WebUI/API/Desktop 长运行进程保存 SCHEDULE_ENABLED、SCHEDULE_TIME 或 SCHEDULE_TIMES 后会按新配置启停或重建 runtime scheduler。',
       '定时任务触发时会读取当前保存的 STOCK_LIST。',
     ],
     impact: ['影响 schedule 模式下自动分析频率、启动行为和通知推送时间。'],
     notes: [
       '注意运行环境时区，容器和服务器时区可能与本地不同。',
-      '若当前进程未以 schedule 模式启动，保存这些字段不会自动创建调度器。',
+      'SCHEDULE_RUN_IMMEDIATELY 仍是启动期行为；保存后不会立即触发一次分析。',
     ],
   },
   'settings.system.RUN_IMMEDIATELY': {
@@ -1515,16 +1515,16 @@ const settingsHelpEnUS: SettingsHelpMap = {
   'settings.system.schedule': {
     title: 'Schedule',
     summary: 'Controls daily scheduled analysis and whether startup runs immediately.',
-    usage: 'SCHEDULE_TIME uses HH:MM 24-hour format. SCHEDULE_ENABLED and SCHEDULE_RUN_IMMEDIATELY control schedule-mode startup behavior.',
+    usage: 'SCHEDULE_TIME uses HH:MM 24-hour format. SCHEDULE_TIMES accepts comma-separated HH:MM values. SCHEDULE_ENABLED controls whether the runtime scheduler is enabled.',
     valueNotes: [
-      'An already-running schedule mode reads a new SCHEDULE_TIME on the next scheduler check and rebuilds the daily job.',
-      'SCHEDULE_ENABLED and SCHEDULE_RUN_IMMEDIATELY are startup-time settings; saving them does not start, stop, or rebuild the current scheduler.',
+      'An already-running schedule mode reads new SCHEDULE_TIME / SCHEDULE_TIMES values on the next scheduler check and rebuilds the daily jobs.',
+      'Long-running WebUI/API/Desktop processes start, stop, or rebuild the runtime scheduler after saving SCHEDULE_ENABLED, SCHEDULE_TIME, or SCHEDULE_TIMES.',
       'Scheduled runs read the currently saved STOCK_LIST.',
     ],
     impact: ['Affects automatic analysis frequency, startup behavior, and notification timing in schedule mode.'],
     notes: [
       'Check the runtime timezone, especially in containers and servers.',
-      'If the current process was not started in schedule mode, saving these fields will not create a scheduler.',
+      'SCHEDULE_RUN_IMMEDIATELY remains a startup-time setting; saving it does not trigger an immediate analysis run.',
     ],
   },
   'settings.system.RUN_IMMEDIATELY': {

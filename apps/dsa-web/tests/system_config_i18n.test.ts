@@ -172,3 +172,19 @@ describe('SAVE_CONTEXT_SNAPSHOT settings help contract', () => {
     expect(text).not.toContain('旧记录');
   });
 });
+
+describe('decision signal settings guard', () => {
+  it('does not add placeholder DecisionSignal setting translations without a real schema field', () => {
+    const placeholderKeys = [
+      'DECISION_SIGNAL_ENABLED',
+      'DECISION_SIGNALS_ENABLED',
+      'DECISION_SIGNAL_WRITE_ENABLED',
+      'DECISION_SIGNAL_EXTRACT_ENABLED',
+    ];
+
+    placeholderKeys.forEach((key) => {
+      expect(getFieldTitleZh(key, key)).toBe(key);
+      expect(getFieldDescriptionZh(key, 'schema fallback description')).toBe('schema fallback description');
+    });
+  });
+});
