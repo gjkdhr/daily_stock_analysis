@@ -195,6 +195,9 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 
 | Variable | Description | Default | Required |
 |--------|------|--------|:----:|
+| `GENERATION_BACKEND` | Generation backend for regular analysis. Phase 1 only supports `litellm`; unknown values are treated as configuration errors and are not silently downgraded | `litellm` | No |
+| `GENERATION_FALLBACK_BACKEND` | Backend-level fallback. The current `litellm -> litellm` setting resolves to no-op; model fallback remains owned by LiteLLM config | `litellm` | No |
+| `AGENT_GENERATION_BACKEND` | Agent Chat generation backend. In Phase 1, `auto` is equivalent to the existing LiteLLM tool-calling backend | `auto` | No |
 | `LITELLM_MODEL` | Primary model, format `provider/model` (e.g. `gemini/gemini-3.1-pro-preview`), recommended | - | No |
 | `AGENT_LITELLM_MODEL` | Optional Agent-only primary model; when empty it inherits the primary model, and bare names are normalized to `openai/<model>` | - | No |
 | `LITELLM_FALLBACK_MODELS` | Fallback models, comma-separated | - | No |
@@ -862,6 +865,11 @@ CUSTOM_WEBHOOK_BODY_TEMPLATE={"msg_type":"text","content":$content_json}
 Available placeholders: `$content_json`, `$content`, `$title_json`, `$title`.
 Raw `$content` / `$title` are not JSON-escaped, so quotes or newlines can make
 the template invalid and trigger fallback.
+
+In Docker Compose deployments, saving this value from Web Settings writes these
+app placeholders as `$$content_json` / `$$title_json` and restores the single
+`$` form at runtime, preventing Compose from expanding them to empty values. If
+you edit the Docker `.env` manually, use the same `$$content_json` style.
 
 Bark stays on the custom webhook baseline; no `BARK_*` settings are required.
 Set the Bark endpoint in `CUSTOM_WEBHOOK_URLS`. When using Bark with a global
