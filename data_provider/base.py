@@ -2952,10 +2952,72 @@ class DataFetcherManager:
             list(adapter_errors),
         )
 
-        # institution / capital_flow / dragon_tiger / boards: keep as not_supported
-        # for offshore markets — no equivalent data feed today.
-        for block in ("institution", "capital_flow", "dragon_tiger", "boards"):
+        # capital_flow / dragon_tiger / boards: no offshore data feed today -> not_supported.
+        for block in ("capital_flow", "dragon_tiger", "boards"):
             result_ctx[block] = self._build_fundamental_block(
+                "not_supported",
+                {},
+                [{"provider": "fundamental_pipeline", "result": "not_supported", "duration_ms": 0}],
+                ["not supported for offshore market"],
+            )
+
+        # institution: tw (台股) has a free official 三大法人 (institutional net buy/sell)
+        # feed (TWSE T86 / TPEx OpenAPI); every other offshore market keeps not_supported.
+        # tw-only + strictly additive + fail-open: any error or no-data -> not_supported,
+        # which never interrupts the main analysis. Raw net figures only — no derived
+        # signal / score / schema (per the v2 scope confirmed on issue #1777).
+        tw_record = None
+        if market == "tw":
+            fetcher = getattr(self, "_tw_institutional_fetcher", None)
+            if fetcher is None:
+                # Wiring (import + construct) is a one-time op; a failure here is a
+                # programming / deploy bug, so log it LOUD (error). Still fail-open
+                # (never interrupt the main analysis — a hard requirement of #1777).
+                try:
+                    from data_provider.tw_institutional_fetcher import TwInstitutionalFetcher
+
+                    fetcher = TwInstitutionalFetcher()
+                    self._tw_institutional_fetcher = fetcher
+                except Exception as exc:  # noqa: BLE001 - wiring failure: loud but fail-open
+                    logger.error("[tw-inst] fetcher init failed (wiring bug?) code=%s: %s", stock_code, exc)
+                    fetcher = None
+            if fetcher is not None:
+                # Run the fetch under the SAME fundamental stage/fetch budget as the other
+                # offshore blocks (_run_with_retry) so a slow / rate-limited TWSE/TPEx call
+                # cannot push the analysis past its deadline — it fails open on timeout.
+                inst_timeout = min(fetch_timeout, max(stage_timeout - (time.time() - start_ts), 0.0))
+                if inst_timeout > 0:
+                    tw_record, inst_err, _inst_ms = self._run_with_retry(
+                        lambda: fetcher.get_institutional_net(stock_code),
+                        inst_timeout,
+                        "fundamental_tw_institution",
+                    )
+                    if inst_err:
+                        logger.warning("[tw-inst] fetch failed/timeout code=%s: %s", stock_code, inst_err)
+                else:
+                    tw_record = None
+        # status 'ok' only when the record carries all core net figures (a genuine 0 is
+        # kept — 0 is not None); None / missing core field / fetch failure -> not_supported.
+        _tw_core = ("foreign_net", "trust_net", "dealer_net", "total_net")
+        if tw_record is not None and all(tw_record.get(key) is not None for key in _tw_core):
+            institution_status = "ok"
+            result_ctx["institution"] = self._build_fundamental_block(
+                "ok",
+                {
+                    "foreign_net": tw_record.get("foreign_net"),
+                    "trust_net": tw_record.get("trust_net"),
+                    "dealer_net": tw_record.get("dealer_net"),
+                    "total_net": tw_record.get("total_net"),
+                    "unit": tw_record.get("unit"),
+                    "date": tw_record.get("date"),
+                    "source": tw_record.get("source"),
+                },
+                [{"provider": tw_record.get("source", "tw-institutional"), "result": "ok", "duration_ms": 0}],
+                [],
+            )
+        else:
+            institution_status = "not_supported"
+            result_ctx["institution"] = self._build_fundamental_block(
                 "not_supported",
                 {},
                 [{"provider": "fundamental_pipeline", "result": "not_supported", "duration_ms": 0}],
@@ -2968,7 +3030,7 @@ class DataFetcherManager:
             "valuation": result_ctx["valuation"].get("status", "not_supported"),
             "growth": growth_status,
             "earnings": earnings_status,
-            "institution": "not_supported",
+            "institution": institution_status,
             "capital_flow": "not_supported",
             "dragon_tiger": "not_supported",
             "boards": "not_supported",
@@ -2979,10 +3041,17 @@ class DataFetcherManager:
             result_ctx["source_chain"].extend(result_ctx[block].get("source_chain", []))
 
         active_statuses = {"valuation": valuation_status, "growth": growth_status, "earnings": earnings_status}
-        if all(value == "not_supported" for value in active_statuses.values()):
+        # tw institution (when present) counts toward the OVERALL status so a report that
+        # only has 三大法人 data still surfaces fundamentals (consumers key off the top-level
+        # status). missing_fields stays the original three blocks, so offshore markets
+        # without institution data are byte-identical (institution is not_supported there).
+        status_values = list(active_statuses.values())
+        if institution_status == "ok":
+            status_values.append("ok")
+        if all(value == "not_supported" for value in status_values):
             result_ctx["status"] = "not_supported"
             result_ctx["data_quality"] = "unavailable"
-        elif "failed" in active_statuses.values() or "partial" in active_statuses.values():
+        elif "failed" in status_values or "partial" in status_values:
             result_ctx["status"] = "partial"
             result_ctx["data_quality"] = "partial"
         else:

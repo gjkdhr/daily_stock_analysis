@@ -114,7 +114,7 @@ daily_stock_analysis/
 |------------|------|:----:|
 | `SINGLE_STOCK_NOTIFY` | 单股推送模式：设为 `true` 则每分析完一只股票立即推送 | 可选 |
 | `REPORT_TYPE` | 报告类型：`simple`(精简)、`full`(完整)、`brief`(3-5句概括)，Docker环境推荐设为 `full` | 可选 |
-| `REPORT_LANGUAGE` | 报告输出语言：`zh`(默认中文) / `en`(英文)；会同步影响 Prompt、模板、通知 fallback 与 Web 报告页固定文案。仓库自带 `00-daily-analysis.yml` 已显式映射该变量，直接在 Actions Secrets/Variables 中配置即可生效 | 可选 |
+| `REPORT_LANGUAGE` | 报告输出语言：`zh`(默认中文) / `en`(英文) / `ko`(韩文)；会同步影响 Prompt、模板、通知 fallback 与 Web 报告页固定文案。`ko` 复用英文结构骨架并通过输出语言指令约束模型用韩文输出，通知按报告语言渲染本地化标签。仓库自带 `00-daily-analysis.yml` 已显式映射该变量，直接在 Actions Secrets/Variables 中配置即可生效 | 可选 |
 | `REPORT_SUMMARY_ONLY` | 仅分析结果摘要：设为 `true` 时只推送汇总，不含个股详情；多股时适合快速浏览（默认 false，Issue #262） | 可选 |
 | `REPORT_SHOW_LLM_MODEL` | 通知报告底部是否显示本次分析使用的 LLM 模型名称，默认 `true`；设为 `false` 可隐藏运行时模型信息。该变量仅调整展示，不影响 provider/model/Base URL、LiteLLM 路由或运行时模型保存/迁移/清理语义。 | 可选 |
 | `REPORT_TEMPLATES_DIR` | Jinja2 模板目录（相对项目根，默认 `templates`） | 可选 |
@@ -227,13 +227,14 @@ daily_stock_analysis/
 
 | 变量名 | 说明 | 默认值 | 必填 |
 |--------|------|--------|:----:|
-| `GENERATION_BACKEND` | 普通分析生成后端；支持 `litellm` 或显式 opt-in 的 `codex_cli`（experimental/limited） | `litellm` | 否 |
+| `GENERATION_BACKEND` | 普通分析生成后端；支持 `litellm` 或显式 opt-in 的 `codex_cli` / `claude_code_cli` / `opencode_cli`（experimental/limited） | `litellm` | 否 |
+| `OPENCODE_CLI_MODEL` | `GENERATION_BACKEND=opencode_cli` 时可选传给 OpenCode `--model` 的模型覆盖；留空则使用本机 OpenCode 默认模型，认证和模型可用性由本机 OpenCode 配置负责 | 空 | 否 |
 | `GENERATION_FALLBACK_BACKEND` | backend 级 fallback；未配置默认 `litellm`，空值禁用，self fallback 解析为 no-op | `litellm` | 否 |
 | `GENERATION_BACKEND_TIMEOUT_SECONDS` | 单次 generation backend 调用超时秒数，主要用于本地 CLI backend；范围 `1-3600` | `300` | 否 |
 | `GENERATION_BACKEND_MAX_OUTPUT_BYTES` | 单次本地 CLI backend 诊断 stdout/stderr 与最终响应捕获总上限；`--output-last-message` 重复打印到 stdout 的最终响应不重复计入；范围 `1-33554432` | `1048576` | 否 |
 | `GENERATION_BACKEND_MAX_CONCURRENCY` | generation backend 全局并发上限；范围 `1-16`，不改变 LiteLLM Router / `MAX_WORKERS` 行为 | `1` | 否 |
 | `LOCAL_CLI_BACKEND_MAX_CONCURRENCY` | 本地 CLI backend 并发上限；范围 `1-4`，有效并发取它与 `GENERATION_BACKEND_MAX_CONCURRENCY` 的较小值 | `1` | 否 |
-| `AGENT_GENERATION_BACKEND` | Agent Chat 生成后端；Web 设置页仅暴露 `auto|litellm`，手写 `codex_cli` 会返回 unsupported tool-calling 诊断 | `auto` | 否 |
+| `AGENT_GENERATION_BACKEND` | Agent Chat 生成后端；Web 设置页仅暴露 `auto|litellm`，手写 local CLI backend 会返回 unsupported tool-calling 诊断 | `auto` | 否 |
 | `LITELLM_MODEL` | 主模型，格式 `provider/model`（如 `gemini/gemini-3.1-pro-preview`），推荐优先使用 | - | 否 |
 | `AGENT_LITELLM_MODEL` | Agent 主模型（可选）；留空继承主模型，无 provider 前缀按 `openai/<model>` 解析 | - | 否 |
 | `AGENT_CONTEXT_COMPRESSION_ENABLED` | 问股可见对话上下文压缩开关；默认关闭，开启后仅压缩 `session_id` 下 user/assistant 文本历史 | `false` | 否 |
@@ -412,6 +413,7 @@ daily_stock_analysis/
 > - ETF：返回可得项，缺失能力标记为 `not_supported`，整体不影响原流程；
 > - 美股/港股：通过 yfinance 适配器返回 `valuation/growth/earnings/belong_boards`（来源 `info.sector`/`industry`），`institution/capital_flow/dragon_tiger/boards` 暂无对应数据源仍标记 `not_supported`；yfinance 不可用或字段缺失时整体降级回 `not_supported`，仍走 fail-open；
 > - 日股/韩股：当前仅走 Yfinance 基础路径获取日线与实时行情；`institution`、`capital_flow`、`dragon_tiger`、`boards` 等依赖 A 股专属源/离岸完整版的能力会降级为 `not_supported`（详见 [市场支持与边界](market-support.md)）；
+> - 台股：在美股/港股 offshore 基础路径之外，`institution` 区块额外展示三大法人原始买卖超净额（TWSE T86 / TPEx，默认开启、fail-open，取不到数据时维持 `not_supported`）；`capital_flow`、`dragon_tiger`、`boards` 仍为 `not_supported`；
 > - 任何异常走 fail-open，仅记录错误，不影响技术面/新闻/筹码主链路。
 > - 配置 `TICKFLOW_API_KEY` 后，TickFlow 会作为可选 A 股日 K 数据源和大盘复盘增强源实例化；`TICKFLOW_PRIORITY` 只影响日 K/通用数据源回退链。实时行情优先级由 `REALTIME_SOURCE_PRIORITY` 单独控制，只有显式包含 `tickflow` 时才会使用 TickFlow 实时行情。`REALTIME_SOURCE_PRIORITY` 中排在 `tickflow` 前面的数据源会先被尝试。
 > - TickFlow 日 K 默认 `TICKFLOW_KLINE_ADJUST=none`；日线 `volume` 从手统一转为股，`amount` 保持元口径。
@@ -1499,7 +1501,7 @@ FastAPI 提供 RESTful API 服务，支持配置管理和触发分析。
 
 - Web 语言状态采用两层机制：`dsa.uiLanguage`（浏览器持久化）与 `REPORT_LANGUAGE`（报告输出）解耦。
   - `dsa.uiLanguage` 只决定 WebUI 文案与导航语言（`zh` / `en`），取值优先级为本地持久化值 -> 浏览器语言 -> 默认 `zh`。
-  - `REPORT_LANGUAGE` 控制报告文本、股票简称本地化与报告页固定文案（`zh` / `en`）。
+  - `REPORT_LANGUAGE` 控制报告文本、股票简称本地化与报告页固定文案（`zh` / `en` / `ko`）。
 - 页面语言切换为用户体验增强，不属于回归验证证据记录范围；截图与命令请按 PR 流程在 PR 描述中单独维护。
 - 本改动仅新增请求级报告语言覆盖参数，不改变 `provider`/`model`/`base_url` 的配置迁移与清理逻辑。
 
@@ -1543,10 +1545,10 @@ FastAPI 提供 RESTful API 服务，支持配置管理和触发分析。
 > 说明：`POST /api/v1/analysis/analyze` 在 `async_mode=false` 时仅支持单只股票；批量 `stock_codes` 需使用 `async_mode=true`。异步 `202` 响应对单股返回 `task_id`，对批量返回 `accepted` / `duplicates` 汇总结构。
 > 说明：`POST /api/v1/analysis/analyze` 支持使用 `skills` 传入策略 skill ID 列表；若未传则按服务端默认策略执行。为兼容历史调用，`strategies` 字段仍作为兼容别名保留。
 > 说明：`POST /api/v1/analysis/analyze` 支持 `analysis_phase=auto|premarket|intraday|postmarket`，默认 `auto`。非 `auto` 只覆盖本次分析阶段与派生阶段标记，不改写真实交易日历时间；accepted response、内存 task status、任务列表和 SSE 会回显请求阶段，最终报告阶段以 `report.meta.market_phase_summary.phase` 为准。
-> 说明：`POST /api/v1/analysis/analyze` 支持 `report_language=zh|en`，并兼容 `reportLanguage` 作为别名；未传时回退到全局 `REPORT_LANGUAGE`（或环境中的 `Config.report_language`）。该字段仅影响本次分析的报告文本、`report.meta.report_language` 与持久化展示，不会持久化为运行时配置。
+> 说明：`POST /api/v1/analysis/analyze` 支持 `report_language=zh|en|ko`，并兼容 `reportLanguage` 作为别名；未传时回退到全局 `REPORT_LANGUAGE`（或环境中的 `Config.report_language`）。该字段仅影响本次分析的报告文本、`report.meta.report_language` 与持久化展示，不会持久化为运行时配置。
 > 说明：Web 侧首页策略下拉为显式可选策略入口。用户未手动选择时不会携带 `skills`，与历史客户端行为一致；选择策略后将透传到该接口并在任务状态与历史快照中保留。
 > 说明：`POST /api/v1/analysis/market-review` 采用后端与 CLI/Bot 共用的配置路径（`GeminiAnalyzer(config=...)` 与同样的搜索/提示词构造入口）。Provider 兼容路由会优先识别并使用 `litellm_model`、`llm_model_list`，若未配置则回退 legacy `GEMINI_*`、`OPENAI_*`、`ANTHROPIC_*`、`DEEPSEEK_*` 键；不会新增/调整 provider、Base URL 或 LiteLLM 路由语义。
-> 说明：`POST /api/v1/analysis/market-review` 额外支持 `report_language=zh|en`（支持别名 `reportLanguage`）。未传时同样回退到全局 `REPORT_LANGUAGE`。该参数仅影响本次复盘报告文本与结构化返回字段中的语言相关内容；Bot、schedule、CLI 或按钮触发的 `main.py --market-review` 仍沿用全局配置，未新增请求级覆盖能力。
+> 说明：`POST /api/v1/analysis/market-review` 额外支持 `report_language=zh|en|ko`（支持别名 `reportLanguage`）。未传时同样回退到全局 `REPORT_LANGUAGE`。该参数仅影响本次复盘报告文本与结构化返回字段中的语言相关内容；Bot、schedule、CLI 或按钮触发的 `main.py --market-review` 仍沿用全局配置，未新增请求级覆盖能力。
 > 说明：`POST /api/v1/analysis/market-review` 是 Web / 桌面端的人工触发入口，点击后会直接提交大盘复盘任务，不会因 `TRADING_DAY_CHECK_ENABLED=true` 或当日相关市场休市而短路跳过；定时任务、GitHub Actions 手动运行和 CLI 默认入口仍遵循交易日检查，可用 `--force-run` 或 workflow `force_run` 覆盖。
 > 审计依据：优先级与回退语义以 `src/config.py` 的 `Config._load_from_env()` 为准（`LITELLM_CONFIG` > `LLM_CHANNELS` > legacy）。配套回归见 `tests/test_llm_channel_config.py`（配置源解析）与 `tests/test_market_review_runtime.py`（共享装配路径）。该接口当前仅提供单进程/单机级防重复能力，若为多实例部署需通过外部任务队列或分布式锁补齐全局幂等。
 > 说明：`POST /api/v1/analysis/market-review` 触发后，报告会以 `report_type=market_review` 写入历史库；你可直接查询 `/api/v1/history` 或 `/api/v1/history/{record_id}` 获取历史 Markdown，避免再次触发分析重算。
