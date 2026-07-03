@@ -30,11 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] #1743 Phase 4 修正 `opencode_cli` 静态指令，避免全局 JSON-only 约束影响 `generate_text()` 与大盘复盘自由文本输出。
 - [文档] #1743 Phase 4 同步本地 CLI backend 隐私/部署边界：local CLI 不是离线模型，Docker/CI/远端需自行安装登录，DSA 不读取 Claude/OpenCode credential 文件。
 - [新功能] 台股报告接入三大法人：tw 个股分析报告的 institution 区块改为展示 TWSE T86 / TPEx 三大法人原始买卖超净额（外资/投信/自营/合计，单位:股）；tw-only、严格 additive（A股/港股/美股/日韩股 offshore 流程字节不变）、fail-open（取不到数据维持 not_supported，绝不中断分析）；不接 Web、不派生 capital_flow_signal、不改评分权重或 schema。
+- [修复] yfinance 分红解析：yfinance 1.2.x 将 `Ticker.dividends` 返回为单列 DataFrame（而非 Series），适配器按 Series 迭代 `.items()` 导致每笔分红被丢弃、TTM 每股分红与分红次数静默退回 `trailingAnnualDividendRate` 年率估算（如 24.0 / 分红次数 0，而非真实 TTM 合计）；现在迭代前强制转为 Series。影响所有 yfinance 后缀市场（美股/港股/日韩股/台股）。
 - [改进] 台股报告完整消费三大法人：tw 个股报告的 `institution` 区块现会在报告中渲染三大法人净买卖超表格，并注入 LLM 分析 prompt 作为台股筹码过滤器（此前仅接入数据层，报告与 prompt 均未消费，导致报告出现「筹码结构：数据缺失」）；同时三大法人整市场抓取改用剩余 stage 预算而非较小的 per-symbol fetch 超时，避免单股/首档分析因冷抓取（~4-5s）超时而降级为 not_supported。tw-only、严格 additive、fail-open。
 - [修复] 台股财务金额币别标示：TWD 金额此前落入默认「元」(在 A 股语境易误读为人民币)，`_CURRENCY_SUFFIX` 补入 TWD→「新台币」，营业收入/归母净利润/经营现金流/每股现金分红均正确标注新台币。
 - [改进] 台股三大法人 fetcher 韧性加固：(1) 接入熔断器（复用 `realtime_types.CircuitBreaker`，按市场 twse/tpex 分流，连续失败 3 次→冷却 ~5min→半开探测），TWSE/TPEx 端点异常时快速跳过网络往返并 fail-open，避免端点故障时每档个股都付 timeout+throttle；(2) TPEx OpenAPI 仅服务最新交易日，调用方传入与服务日期不符的明确日期时改为 fail-open（返回无数据），避免静默返回错日资料。
 
 - [修复] 台股（tw）市场阶段（`market_phase`）新增收盘集合竞价识别：`_CLOSING_AUCTION_WINDOW_MINUTES` 缺 `tw` 键时 `.get(market, 0)` 得零宽窗口，TWSE/TPEx 13:25–13:30 的 5 分钟收盘竞价此前永远无法判定为 `closing_auction`（收盘前一刻仍 `intraday`、13:30 直接 `postmarket`）；补 `"tw": 5` 修正，附阶段边界回归测试。仅 tw 加项，cn/hk/us 与 jp/kr 行为不变。
+- [新功能] 新增 AI 建议决策风格重评估预览接口与页面预览。
+- [文档] 更新 README 三语入口和市场支持边界，明确台股个股分析已支持 `.TW` / `.TWO` suffix、三大法人报告区块、TWD 标注与收盘竞价识别，同时保留台股股票池自动补全、大盘复盘和大盘红绿灯告警的未覆盖边界。
 
 ## [3.24.1] - 2026-06-28
 
