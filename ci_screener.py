@@ -75,8 +75,8 @@ def run(token):
     pool = pool[pool['a5']>pool['a20']]
     pool = pool[(pool['dp']>=2)&(pool['ce']>pool['avg_p'])].reset_index(drop=True)
 
-    # 限制输出数量（DSA 分析太慢，最多 15 只）
-    pool = pool.head(15).reset_index(drop=True)
+    # 按成交额排序取 TOP 15（流动性最好的优先）
+    pool = pool.sort_values('amount', ascending=False).head(15).reset_index(drop=True)
 
     # 输出
     codes = pool['ts_code'].str.split('.').str[0].tolist()
