@@ -1,31 +1,41 @@
-name: 智能选股 → 自动分析
+name: 智能选股
 
 on:
   schedule:
-    - cron: '30 7 * * 1-5'
+    - cron: '30 7 * * 1-5'   # 15:30(北京)，DSA 原生在 18:00
   workflow_dispatch:
 
 jobs:
-  screener:
+  screen:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-      - name: 安装依赖
-        run: pip install tushare pandas
-      - name: 运行选股筛选
-        id: screen
+        with: { python-version: '3.11' }
+      - run: pip install tushare pandas
+
+      - name: 运行筛选
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-        run: |
-          python ci_screener.py "$TUSHARE_TOKEN"
-          echo "STOCK_LIST=$(cat output/stock_list.env | cut -d= -f2)" >> $GITHUB_ENV
-      - name: 触发 DSA 分析
+        run: python ci_screener.py
+
+      - name: 更新 STOCK_LIST 变量 → DSA 18:00 自动读取
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          echo "筛选完成, 触发DSA分析..."
-          gh workflow run 00-daily-analysis.yml --ref main
+          LIST=$(cat output/stock_list.env | cut -d= -f2)
+          COUNT=$(echo $LIST | tr ',' '\n' | wc -l)
+          echo "筛选结果: $COUNT 只"
+          echo "写入 STOCK_LIST 变量..."
+          gh api -X PATCH repos/gjkdhr/daily_stock_analysis/actions/variables/STOCK_LIST \
+            -f value="$LIST" || \
+          gh api -X POST repos/gjkdhr/daily_stock_analysis/actions/variables \
+            -f name="STOCK_LIST" -f value="$LIST"
+          echo "✅ 完成, DSA 将在 18:00 自动分析"
+
+      - name: 上传筛选结果
+        uses: actions/upload-artifact@v4
+        with:
+          name: screener-result
+          path: output/
