@@ -91,8 +91,13 @@ def run(token):
     pool = pool[pool['excess'] > 10].reset_index(drop=True)
     print(f"  超额收益>10%(vs沪深300): {len(pool)} 只")
 
-    # 按成交额排序取 TOP 15
-    pool = pool.sort_values('amount', ascending=False).head(15).reset_index(drop=True)
+    # BIAS20 乖离率 5%~18%（偏离20日均线幅度）
+    pool['bias20'] = round((pool['ce'] - pool['ma20']) / pool['ma20'] * 100, 2)
+    pool = pool[(pool['bias20'] >= 5) & (pool['bias20'] <= 18)].reset_index(drop=True)
+    print(f"  BIAS20(5%~18%): {len(pool)} 只")
+
+    # 按成交额排序（展示用，不限制数量）
+    pool = pool.sort_values('amount', ascending=False).reset_index(drop=True)
 
     # 输出
     codes = pool['ts_code'].str.split('.').str[0].tolist()
