@@ -1,0 +1,31 @@
+name: 智能选股 → 自动分析
+
+on:
+  schedule:
+    - cron: '30 7 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  screener:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: 安装依赖
+        run: pip install tushare pandas
+      - name: 运行选股筛选
+        id: screen
+        env:
+          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+        run: |
+          python ci_screener.py "$TUSHARE_TOKEN"
+          echo "STOCK_LIST=$(cat output/stock_list.env | cut -d= -f2)" >> $GITHUB_ENV
+      - name: 触发 DSA 分析
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "筛选完成, 触发DSA分析..."
+          gh workflow run 00-daily-analysis.yml --ref main
