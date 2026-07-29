@@ -39,10 +39,22 @@ def run(token):
     daily = pd.concat(dl, ignore_index=True)
     basic = pd.concat(bb, ignore_index=True)
 
+    # 沪深300近20日涨幅
+    csi = pro.index_daily(ts_code='000300.SH', start_date=start, end_date=end)
+    if csi is not None and len(csi) >= 2:
+        csi_s = csi[csi['trade_date']==start]['close'].iloc[0]
+        csi_e = csi[csi['trade_date']==end]['close'].iloc[0]
+        csi_pct = (csi_e - csi_s) / csi_s * 100
+    else:
+        csi_pct = 0
+    print(f"📈 沪深300近20日涨幅: {csi_pct:+.2f}%")
+
     # 构建池
     s = daily[daily['trade_date']==start][['ts_code','close']].rename(columns={'close':'cs'})
     e = daily[daily['trade_date']==end][['ts_code','close']].rename(columns={'close':'ce'})
     pool = pd.merge(s, e, on='ts_code').dropna()
+    pool['pct_20d'] = round((pool['ce'] - pool['cs']) / pool['cs'] * 100, 2)
+    pool['excess'] = pool['pct_20d'] - csi_pct
     pool = pd.merge(pool, sb, on='ts_code')
 
     # 当日涨跌 + 估值 + 成交额
@@ -75,7 +87,11 @@ def run(token):
     pool = pool[pool['a5']>pool['a20']]
     pool = pool[(pool['dp']>=2)&(pool['ce']>pool['avg_p'])].reset_index(drop=True)
 
-    # 按成交额排序取 TOP 15（流动性最好的优先）
+    # 超额收益 > 10%（个股近20日涨幅 - 沪深300 > 10%）
+    pool = pool[pool['excess'] > 10].reset_index(drop=True)
+    print(f"  超额收益>10%(vs沪深300): {len(pool)} 只")
+
+    # 按成交额排序取 TOP 15
     pool = pool.sort_values('amount', ascending=False).head(15).reset_index(drop=True)
 
     # 输出
