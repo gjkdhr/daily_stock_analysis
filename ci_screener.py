@@ -1,31 +1,55 @@
 """优化版：独立筛选脚本
-- 股票基础信息读取 DSA 本地 CSV（省 1 次 API）
+- 股票基础信息走 Tushare API（CI 是干净的 checkout，无本地 CSV 缓存）
 - 仅需 20 次日线 + 20 日指标 = 40 次调用
 - 输出 STOCK_LIST 格式，兼容 DSA
 """
 import tushare as ts
 import pandas as pd
 import os, sys
+from datetime import datetime, timedelta, timezone
+
+CST = timezone(timedelta(hours=8))
+
+
+def recent_trade_days(pro, count=20, lookback_days=120):
+    """取截至今天（北京时间）最近的 count 个已收盘交易日，升序返回。
+
+    交易日历不再写死日期。若最新交易日就是今天，先探测当日日线是否已发布；
+    未发布则回退到上一个交易日（定时任务在北京时间 15:30 触发，早于 Tushare
+    当日数据发布，且 GitHub Actions 的 schedule 实际触发时间常有延后）。
+    """
+    today = datetime.now(CST).strftime('%Y%m%d')
+    cal = pro.trade_cal(
+        exchange='SSE',
+        start_date=(datetime.now(CST) - timedelta(days=lookback_days)).strftime('%Y%m%d'),
+        end_date=today,
+    )
+    days = sorted(cal[cal['is_open'] == 1]['cal_date'].tolist())
+    if not days:
+        raise RuntimeError(f"最近 {lookback_days} 天内无交易日，请检查交易日历接口")
+    if days[-1] == today:
+        probe = pro.daily(trade_date=days[-1], fields='ts_code')
+        if probe is None or len(probe) == 0:
+            print(f"⚠️  {days[-1]} 日线尚未发布，回退到上一交易日")
+            days = days[:-1]
+    if len(days) < count:
+        raise RuntimeError(f"可用交易日不足 {count} 个（仅 {len(days)} 个）")
+    return days[-count:]
+
 
 def run(token):
     ts.set_token(token)
     pro = ts.pro_api()
 
-    # 交易日历
-    cal = pro.trade_cal(start_date="20260601", end_date="20260729")
-    days = cal[cal['is_open']==1]['cal_date'].sort_values().tolist()
-    end, start = days[-1], days[-20]
+    # 交易日历（最近 20 个已收盘交易日，动态计算）
+    days = recent_trade_days(pro, 20)
+    end, start = days[-1], days[0]
+    print(f"📅 区间: {start} → {end}（{len(days)} 个交易日）")
 
-    # 股票基础信息（优先读 DSA 本地 CSV，省 1 次 API）
-    csv_path = "data/stock_list_a.csv"
-    if os.path.exists(csv_path):
-        sb = pd.read_csv(csv_path, usecols=['ts_code','name','industry'])
-        print(f"📂 从 {csv_path} 读取股票信息")
-    else:
-        sb = pro.stock_basic(exchange='', list_status='L',
-                             fields='ts_code,name,industry')
-        sb.to_csv("data/stock_list_a.csv", index=False)
-        print(f"📥 从 API 获取股票信息 ({len(sb)} 只)")
+    # 股票基础信息（直接走 API，不落盘）
+    sb = pro.stock_basic(exchange='', list_status='L',
+                         fields='ts_code,name,industry')
+    print(f"📥 从 API 获取股票信息 ({len(sb)} 只)")
 
     # 下载 20 天日线 + 指标（2×20=40 次调用）
     dl, bb = [], []
