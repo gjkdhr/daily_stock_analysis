@@ -78,6 +78,7 @@ const GENERATION_BACKEND_STATUS_KEYS = new Set([
   'DEEPSEEK_API_KEY',
   'DEEPSEEK_API_KEYS',
   'AIHUBMIX_KEY',
+  'MODELFLARE_KEY',
   'ANSPIRE_LLM_ENABLED',
   'ANSPIRE_LLM_BASE_URL',
   'ANSPIRE_LLM_MODEL',
@@ -197,6 +198,7 @@ type FirstRunSetupCardProps = {
   smokeSuccess: string;
   onRefresh: () => void | Promise<void>;
   onSelectCategory: (category: SystemConfigCategory) => void;
+  onEditStockList: () => void;
   onRunSmoke: () => void | Promise<void>;
   listSeparator: string;
   t: (key: UiTextKey, params?: Record<string, string | number>) => string;
@@ -213,6 +215,7 @@ const FirstRunSetupCard: React.FC<FirstRunSetupCardProps> = ({
   smokeSuccess,
   onRefresh,
   onSelectCategory,
+  onEditStockList,
   onRunSmoke,
   listSeparator,
   t,
@@ -326,7 +329,7 @@ const FirstRunSetupCard: React.FC<FirstRunSetupCardProps> = ({
           <Button type="button" variant="settings-secondary" size="sm" onClick={() => onSelectCategory('ai_model')}>
             {t('settings.setupGuideConfigureLlm')}
           </Button>
-          <Button type="button" variant="settings-secondary" size="sm" onClick={() => onSelectCategory('base')}>
+          <Button type="button" variant="settings-secondary" size="sm" onClick={() => onEditStockList()}>
             {t('settings.setupGuideAddStocks')}
           </Button>
           <Button type="button" variant="settings-secondary" size="sm" onClick={() => onSelectCategory('notification')}>
@@ -852,7 +855,8 @@ const SettingsPage: React.FC = () => {
   const screeningEnabled = String(screeningItem?.value ?? '').trim().toLowerCase() === 'true';
   const shouldShowFirstRunSetup = activeCategory === 'base';
   const shouldShowScreeningSettings = activeCategory === 'base' && Boolean(screeningItem);
-  const hasConfiguredChannels = Boolean((rawActiveItemMap.get('LLM_CHANNELS') || '').trim());
+  const hasConfiguredChannels = Boolean((rawActiveItemMap.get('LLM_CHANNELS') || '').trim()
+    || (rawActiveItemMap.get('MODELFLARE_KEY') || '').trim());
   const hasLitellmConfig = Boolean((rawActiveItemMap.get('LITELLM_CONFIG') || '').trim());
   const hasRuntimeSchedulerMismatch =
     schedulerRuntimeEnabled !== null
@@ -1145,6 +1149,15 @@ const SettingsPage: React.FC = () => {
     }
   };
 
+  // Setup guide renders only under the base category, so switching category changes
+  // nothing here: scroll to the SettingsField control for STOCK_LIST and focus it.
+  const handleEditSetupStockList = () => {
+    setActiveCategory('base');
+    const node = document.getElementById('setting-STOCK_LIST');
+    node?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    node?.focus({ preventScroll: true });
+  };
+
   const handleRunSetupSmoke = async () => {
     setSetupSmokeError(null);
     setSetupSmokeSuccess('');
@@ -1203,16 +1216,6 @@ const SettingsPage: React.FC = () => {
   const activeCategoryTitle = getCategoryTitle(activeCategory as SystemConfigCategory, t('settings.activePanelTitle'), uiLanguage);
   const activeCategoryDescription = getCategoryDescription(activeCategory as SystemConfigCategory, '', uiLanguage);
   const selectedAgentBackend = (rawActiveItemMap.get('AGENT_BACKEND') || 'auto').trim().toLowerCase();
-  const selectedAgentArch = (rawActiveItemMap.get('AGENT_ARCH') || 'single').trim().toLowerCase();
-  const hasCodexArchitectureConflict = selectedAgentBackend === 'codex_app_server' && selectedAgentArch !== 'single';
-  const codexArchitectureIssue: ConfigValidationIssue = {
-    key: 'AGENT_ARCH',
-    code: 'unsupported_agent_arch',
-    message: t('settings.agentBackendSingleOnly'),
-    severity: 'error',
-    expected: 'single',
-    actual: selectedAgentArch,
-  };
   const activeConfigPanel = hasActiveConfigItems ? (
     <SettingsSectionCard
       title={activeCategoryTitle}
@@ -1221,9 +1224,7 @@ const SettingsPage: React.FC = () => {
       {visibleActiveItems.length ? (
         <div className="divide-y divide-[var(--settings-border-soft)] overflow-hidden rounded-lg border border-[var(--settings-border)] bg-[var(--settings-surface)]">
           {visibleActiveItems.map((item) => {
-            const fieldIssues = item.key === 'AGENT_ARCH' && hasCodexArchitectureConflict
-              ? [...(issueByKey[item.key] || []), codexArchitectureIssue]
-              : issueByKey[item.key] || [];
+            const fieldIssues = issueByKey[item.key] || [];
             return (
               <SettingsField
                 key={item.key}
@@ -1361,6 +1362,7 @@ const SettingsPage: React.FC = () => {
                 smokeSuccess={setupSmokeSuccess}
                 onRefresh={refreshSetupStatus}
                 onSelectCategory={setActiveCategory}
+                onEditStockList={handleEditSetupStockList}
                 onRunSmoke={handleRunSetupSmoke}
                 listSeparator={uiLanguage === 'en' ? ', ' : '、'}
                 t={t}
@@ -1660,9 +1662,7 @@ const SettingsPage: React.FC = () => {
                     items={agentBackendDraftItems}
                     maskToken={maskToken}
                     selectedBackend={selectedAgentBackend}
-                    agentArch={selectedAgentArch}
                     disabled={isSaving || isLoading || isImportingEnv}
-                    onUseSingleAgent={() => setDraftValue('AGENT_ARCH', 'single')}
                     onEnableAgentMode={() => setDraftValue('AGENT_MODE', 'true')}
                   />
                 </SettingsSectionCard>

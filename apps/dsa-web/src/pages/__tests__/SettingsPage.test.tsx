@@ -211,20 +211,15 @@ vi.mock('../../components/settings', async () => {
   AgentBackendStatusPanel: ({
     items,
     selectedBackend,
-    agentArch,
-    onUseSingleAgent,
   }: {
     items: Array<{ key: string; value: string }>;
     selectedBackend: string;
-    agentArch: string;
-    onUseSingleAgent: () => void;
   }) => (
     <div data-testid="agent-backend-status-panel-mock">
       <span data-testid="agent-backend-status-items">
         {items.map((item) => `${item.key}=${item.value}`).join('|')}
       </span>
-      <span>{selectedBackend}:{agentArch}</span>
-      <button type="button" onClick={onUseSingleAgent}>切换为单 Agent</button>
+      <span>{selectedBackend}</span>
     </div>
   ),
   NotificationTestPanel: ({ items }: { items: Array<{ key: string; value: string }> }) => (
@@ -293,6 +288,7 @@ vi.mock('../../components/settings', async () => {
       data-issues={issues.map((issue) => issue.code).join(',')}
     >
       <div>{item.key}</div>
+      <textarea id={`setting-${item.key}`} readOnly />
       {item.schema?.description ? <p>{item.schema.description}</p> : null}
       {item.schema?.options?.map((option) => {
         const label = typeof option === 'string' ? option : option.label;
@@ -694,6 +690,9 @@ describe('SettingsPage', () => {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(mockedAnchorClick);
+    // jsdom does not implement `scrollIntoView` (scrolls would throw); stub it up front
+    // for every test, and let the scroll assertions read this shared stub.
+    HTMLElement.prototype.scrollIntoView = vi.fn();
     resetSharedDesktopUpdateState();
   });
 
@@ -729,9 +728,21 @@ describe('SettingsPage', () => {
     expect(setActiveCategory).toHaveBeenNthCalledWith(3, 'notification');
   });
 
+  it('scrolls to and focuses the stock list field when the setup guide watchlist action is used', async () => {
+    const scrollIntoView = HTMLElement.prototype.scrollIntoView;
+    useSystemConfigMock.mockReturnValue(buildSystemConfigState({ activeCategory: 'base' }));
+
+    renderSettingsPage();
+
+    expect(await screen.findByTestId('first-run-setup-card')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '维护自选股' }));
+
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(document.activeElement).toBe(document.getElementById('setting-STOCK_LIST'));
+  });
+
   it('applies category from the search string and scrolls to desktop version info', async () => {
-    const scrollIntoView = vi.fn();
-    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    const scrollIntoView = HTMLElement.prototype.scrollIntoView;
     (window as { dsaDesktop?: unknown }).dsaDesktop = {
       version: '3.12.0',
       getUpdateState: desktopGetUpdateState,
@@ -1156,7 +1167,7 @@ describe('SettingsPage', () => {
     expect(settingsPanelErrorBoundary).toHaveBeenCalledWith('Agent 设置');
   });
 
-  it('integrates one Agent backend selector and keeps Codex limits editable as unsaved draft actions', () => {
+  it('keeps retired settings visible for correction without an architecture workaround', () => {
     const configState = buildSystemConfigState();
     useSystemConfigMock.mockReturnValue(buildSystemConfigState({
       activeCategory: 'agent',
@@ -1186,14 +1197,13 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('settings-field-AGENT_MAX_STEPS')).toHaveAttribute('data-disabled', 'false');
     expect(screen.getByTestId('settings-field-AGENT_ARCH')).toHaveAttribute(
       'data-issues',
-      'unsupported_agent_arch',
+      '',
     );
     expect(screen.getByTestId('agent-backend-status-items')).toHaveTextContent(
       'AGENT_BACKEND=codex_app_server|AGENT_ARCH=multi',
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '切换为单 Agent' }));
-    expect(setDraftValue).toHaveBeenCalledWith('AGENT_ARCH', 'single');
+    expect(screen.queryByRole('button', { name: '切换为单 Agent' })).not.toBeInTheDocument();
     expect(save).not.toHaveBeenCalled();
   });
 
