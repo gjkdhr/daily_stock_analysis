@@ -24,18 +24,47 @@ jobs:
     timeout-minutes: 20
     
     steps:
-      - name: 同步上游代码
-        run: |
-          gh repo sync ${{ github.repository }} --source ${{ vars.UPSTREAM_REPO || 'ZhuLinsen/daily_stock_analysis' }}
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+      - name: 检出代码
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT || github.token }}
 
+      - name: 同步上游代码（合并而非覆盖，保留 fork 自有提交）
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          UPSTREAM_REPO="${{ vars.UPSTREAM_REPO || 'ZhuLinsen/daily_stock_analysis' }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null \
+            || git remote set-url upstream "https://github.com/${UPSTREAM_REPO}.git"
+          if ! git fetch --no-tags upstream main; then
+            echo "⚠️ 拉取上游失败，本次跳过同步"
+            exit 0
+          fi
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "✅ fork 已包含上游全部提交，无需同步"
+            exit 0
+          fi
+          echo "📥 上游有新提交（$(git rev-list --count HEAD..upstream/main) 个），尝试合并"
+          if git merge --no-edit upstream/main; then
+            echo "✅ 合并成功"
+            if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+              echo "⚠️ 当前不是 main 分支，跳过推送"
+            elif git push origin HEAD:main; then
+              echo "✅ 已推送回 main"
+            else
+              echo "⚠️ 推送失败（GH_PAT 可能缺少 workflow scope），本次分析仍使用已合并代码"
+            fi
+          else
+            git merge --abort || true
+            echo "⚠️ 合并冲突，跳过同步，本次分析使用 fork 当前代码"
+          fi
+          exit 0
 
       - name: 随机延迟（避免固定时间访问）
         run: sleep $((RANDOM % 60))
-      
-      - name: 检出代码
-        uses: actions/checkout@v5
       
       - name: 设置 Python 环境
         uses: actions/setup-python@v6
