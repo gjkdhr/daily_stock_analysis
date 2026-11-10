@@ -120,6 +120,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 告警规则创建、启停或删除期间切换筛选或分页后，列表刷新使用当前筛选条件，避免旧请求闭包覆盖当前视图。
 - [修复] 智能选股预筛选脚本移除对 `data/` 目录的写入（CI 工作区无该目录且已被 `.gitignore` 忽略，导致预筛选连续失败），股票基础信息改由 Tushare API 获取。
 - [修复] 智能选股预筛选脚本不再写死交易日历日期，改为按北京时间动态取最近 20 个已收盘交易日，当日日线未发布时自动回退上一交易日。
+- [文档] 恢复 README、部署指南及模型/搜索配置表中的 Anspire 可点击链接并保留推广码，继续作为 SerpAPI 后的可选搜索服务。
+
+- [改进] 下线 Anspire 合作宣传及专属额度说明，移除 README 推荐入口，调整配置示例和渠道展示顺序；新闻搜索顺序调整至 SerpAPI 之后，保留原推广码链接、已有 Key 和模型渠道兼容。
+
 - [修复] Agent 工具消息内容与工具调用参数序列化不再透传 NaN/±Infinity：`LLMToolAdapter._convert_messages` 序列化前将非有限浮点递归归一化为 `null`，并以 `allow_nan=False` 输出严格 RFC 8259 JSON，避免 LiteLLM 以 `"NaN" is not valid JSON` 拒绝请求（#2471）。
 
 - [修复] 启动日志不再对 `--stocks` / `--portfolio` / `--no-notify` 已覆盖的配置项告警；单一日线数据源失败（含 Eastmoney 股票与 ETF 请求）降为 WARNING，普通股票及 A 股指数全部日线数据源失败仍为 ERROR；LLM 返回与调试日志显示实际响应模型（含流式响应），依据实际调用路由标注回退，避免将别名、供应商前缀和日期版本差异误报为回退
