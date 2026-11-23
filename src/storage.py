@@ -12,6 +12,7 @@ A股自选股智能分析系统 - 存储层
 """
 
 import atexit
+from concurrent.futures import CancelledError
 from contextlib import contextmanager
 import hashlib
 import json
@@ -58,7 +59,9 @@ from sqlalchemy.orm import (
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from src.agent.provider_trace import PROVIDER_TRACE_RETENTION_LIMIT
+from src.agent.tools.execution import TOOL_CANCEL_EVENT, is_tool_cancellation_requested
 from src.config import get_config
+from src.core.stock_execution_context import get_current_stock_cancellation, is_current_stock_cancelled
 from src.schemas.decision_profile import extract_legacy_decision_profile
 from src.utils.sniper_points import extract_sniper_points, parse_sniper_value
 
@@ -399,6 +402,17 @@ class AnalysisHistory(Base):
             'take_profit': self.take_profit,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class MarketSentimentSnapshot(Base):
+    """One immutable A-share closing sentiment snapshot per trading session."""
+
+    __tablename__ = "market_sentiment_snapshots"
+
+    market = Column(String(16), primary_key=True)
+    trade_date = Column(Date, primary_key=True)
+    payload = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utc_naive_now)
 
 
 class BacktestResult(Base):
@@ -1365,7 +1379,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 return instance
 
             logger.info(
-                "DatabaseManager 检测到不同的 db_url，切换绑定: %r -> %r",
+                "DatabaseManager detected different db_url, switching binding: %r -> %r",
                 getattr(instance, '_db_url', None),
                 requested_db_url,
             )
@@ -1461,7 +1475,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             self._ensure_chat_session_schema()
 
             self._initialized = True
-            logger.info(f"数据库初始化完成: {db_url}")
+            logger.info(f"Database initialization completed: {db_url}")
 
             # 注册退出钩子，确保程序退出时关闭数据库连接
             atexit.register(DatabaseManager._cleanup_engine, self._engine)
@@ -1471,7 +1485,10 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 if created_engine is not None:
                     created_engine.dispose()
             except Exception as cleanup_exc:
-                logger.warning("数据库初始化失败后的引擎清理也失败: %s", cleanup_exc)
+                logger.warning(
+                    "Engine cleanup after database initialization failure also failed: %s",
+                    cleanup_exc,
+                )
             self._engine = None
             self._SessionLocal = None
             if not is_candidate:
@@ -2299,7 +2316,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 for column in inspect(self._engine).get_columns(IntelligenceItem.__tablename__)
             }
         except Exception as exc:
-            logger.warning("资讯池 scope_value 回填检查失败，已跳过: %s", exc)
+            logger.warning("Intelligence pool scope_value backfill check failed; skipped: %s", exc)
             return
         if "scope_value" not in existing:
             return
@@ -2312,7 +2329,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                     (INTELLIGENCE_ITEM_NULL_SCOPE_VALUE,),
                 )
         except Exception as exc:
-            logger.warning("资讯池 scope_value 回填失败，已跳过: %s", exc)
+            logger.warning("Intelligence pool scope_value backfill failed; skipped: %s", exc)
 
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
@@ -2345,9 +2362,9 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
         try:
             if engine is not None:
                 engine.dispose()
-                logger.debug("数据库引擎已清理")
+                logger.debug("Database engine disposed")
         except Exception as e:
-            logger.warning(f"清理数据库引擎时出错: {e}")
+            logger.warning(f"Error disposing database engine: {e}")
 
     def _install_sqlite_pragma_handler(self) -> None:
         """为 SQLite 连接安装竞争保护参数。"""
@@ -2362,7 +2379,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 if self._sqlite_file_db and self._sqlite_wal_enabled:
                     cursor.execute("PRAGMA journal_mode=WAL")
             except Exception as exc:
-                logger.warning("初始化 SQLite PRAGMA 失败: %s", exc)
+                logger.warning("Failed to initialize SQLite PRAGMA: %s", exc)
             finally:
                 cursor.close()
 
@@ -2374,22 +2391,37 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
         self,
         operation_name: str,
         write_operation: Callable[[Session], T],
+        *,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> T:
         max_retries = self._sqlite_write_retry_max if self._is_sqlite_engine else 0
 
+        def check_cancelled() -> None:
+            if is_cancelled is not None and is_cancelled():
+                raise CancelledError(operation_name)
+
         for attempt in range(max_retries + 1):
+            check_cancelled()
             session = self.get_session()
             try:
                 if self._is_sqlite_engine:
                     # Acquire the SQLite writer lock before any reads inside
                     # `write_operation()` so pre-write existence checks and the
                     # later upsert share one consistent write window.
-                    session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                    # For cancellable writes, also acquire any reader-blocked
+                    # lock here so COMMIT cannot wait and publish stale data.
+                    begin = "BEGIN EXCLUSIVE" if is_cancelled is not None else "BEGIN IMMEDIATE"
+                    session.connection().exec_driver_sql(begin)
+                check_cancelled()
                 result = write_operation(session)
+                if is_cancelled is not None:
+                    session.flush()
+                    check_cancelled()
                 session.commit()
                 return result
             except OperationalError as exc:
                 session.rollback()
+                check_cancelled()
                 if (
                     self._is_sqlite_engine
                     and self._is_sqlite_locked_error(exc)
@@ -2397,7 +2429,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 ):
                     delay = self._sqlite_write_retry_base_delay * (2 ** attempt)
                     logger.warning(
-                        "SQLite 写入锁冲突，准备重试: %s (%s/%s, %.2fs)",
+                        "SQLite write lock conflict, retrying: %s (%s/%s, %.2fs)",
                         operation_name,
                         attempt + 1,
                         max_retries,
@@ -2649,18 +2681,26 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                         session.flush()
                     local_saved_count += 1
                 except IntegrityError:
-                    logger.debug("新闻情报重复（已跳过）: %s %s", code, url_key)
+                    logger.debug("Duplicate news intelligence (skipped): %s %s", code, url_key)
 
             return local_saved_count
 
         try:
+            is_cancelled = None
+            if TOOL_CANCEL_EVENT.get() is not None:
+                is_cancelled = lambda: is_tool_cancellation_requested() or is_current_stock_cancelled()
+            elif get_current_stock_cancellation() is not None:
+                is_cancelled = is_current_stock_cancelled
             saved_count = self._run_write_transaction(
                 f"save_news_intel[{code}]",
                 _write,
+                is_cancelled=is_cancelled,
             )
-            logger.info(f"保存新闻情报成功: {code}, 新增 {saved_count} 条")
+            logger.info(f"Saved news intelligence: {code}, added {saved_count} record(s)")
+        except CancelledError:
+            return 0
         except Exception as e:
-            logger.error(f"保存新闻情报失败: {e}")
+            logger.error(f"Failed to save news intelligence: {e}")
             raise
 
         return saved_count
@@ -2697,7 +2737,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             )
         except Exception as e:
             logger.debug(
-                "基本面快照写入失败（fail-open）: query_id=%s code=%s err=%s",
+                "Fundamental snapshot write failed (fail-open): query_id=%s code=%s err=%s",
                 query_id,
                 code,
                 e,
@@ -2732,7 +2772,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 ).scalar_one_or_none()
             except Exception as e:
                 logger.debug(
-                    "基本面快照读取失败（fail-open）: query_id=%s code=%s err=%s",
+                    "Fundamental snapshot read failed (fail-open): query_id=%s code=%s err=%s",
                     query_id,
                     code,
                     e,
@@ -2788,7 +2828,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             )
         except Exception as exc:
             logger.warning(
-                "选股运行历史写入失败（fail-open）: run_id=%s err=%s",
+                "Screening run history write failed (fail-open): run_id=%s err=%s",
                 run_id,
                 exc,
             )
@@ -3012,9 +3052,12 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             return self._run_write_transaction(
                 f"save_analysis_history[{result.code}]",
                 _write,
+                is_cancelled=is_current_stock_cancelled if get_current_stock_cancellation() is not None else None,
             )
+        except CancelledError:
+            return 0
         except Exception as e:
-            logger.error(f"保存分析历史失败: {e}")
+            logger.error(f"Failed to save analysis history: {e}")
             return 0
 
     def update_analysis_history_diagnostics(
@@ -3089,7 +3132,8 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             )
         except Exception as e:
             logger.warning(
-                "更新分析历史诊断快照失败（fail-open）: query_id=%s code=%s err=%s",
+                "Failed to update analysis history diagnostic snapshot "
+                "(fail-open): query_id=%s code=%s err=%s",
                 query_id,
                 code,
                 e,
@@ -3522,7 +3566,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             本次实际新增的记录数（不含更新）
         """
         if df is None or df.empty:
-            logger.warning(f"保存数据为空，跳过 {code}")
+            logger.warning(f"Empty data to save, skipping {code}")
             return 0
 
         # D1: canonical_id=None → derive via the Phase 1 parser; on failure
@@ -3673,10 +3717,10 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 f"save_daily_data[{code}]",
                 _write,
             )
-            logger.info(f"保存 {code} 数据成功，新增 {saved_count} 条")
+            logger.info(f"Saved daily data for {code}: added {saved_count} record(s)")
             return saved_count
         except Exception as e:
-            logger.error(f"保存 {code} 数据失败: {e}")
+            logger.error(f"Failed to save daily data for {code}: {e}")
             raise
     
     def get_analysis_context(
@@ -3707,7 +3751,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
         recent_data = self.get_latest_data(code, days=2)
         
         if not recent_data:
-            logger.warning(f"未找到 {code} 的数据")
+            logger.warning(f"No data found for {code}")
             return None
         
         today_data = recent_data[0]

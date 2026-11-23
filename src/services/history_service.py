@@ -16,6 +16,7 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 
+from data_provider.us_index_mapping import get_us_stock_yf_symbol, normalize_us_hyphen_symbol
 from src.config import get_config, resolve_news_window_days
 from src.formatters import markdown_to_plain_text
 from src.data.stock_index_loader import resolve_index_stock_code
@@ -223,6 +224,11 @@ class HistoryService:
         add(raw_canonical)
         add(normalized)
 
+        yahoo_symbol = get_us_stock_yf_symbol(normalized)
+        if yahoo_symbol:
+            add(yahoo_symbol)
+            add(normalize_us_hyphen_symbol(yahoo_symbol) or yahoo_symbol)
+
         if normalized.startswith("HK") and normalized[2:].isdigit():
             add_hk_variants(normalized[2:])
         elif normalized.isdigit() and len(normalized) == 5:
@@ -293,13 +299,13 @@ class HistoryService:
                 try:
                     start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
                 except ValueError:
-                    logger.warning(f"无效的 start_date 格式: {start_date}")
+                    logger.warning(f"Invalid start_date format: {start_date}")
             
             if end_date:
                 try:
                     end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
                 except ValueError:
-                    logger.warning(f"无效的 end_date 格式: {end_date}")
+                    logger.warning(f"Invalid end_date format: {end_date}")
             
             # Calculate offset
             offset = (page - 1) * limit
@@ -325,7 +331,7 @@ class HistoryService:
             }
             
         except Exception as e:
-            logger.error(f"查询历史列表失败: {e}", exc_info=True)
+            logger.error(f"Failed to query history list: {e}", exc_info=True)
             raise
 
     @staticmethod
@@ -645,7 +651,7 @@ class HistoryService:
                 return None
             return self._record_to_detail_dict(record)
         except Exception as e:
-            logger.error(f"根据 ID 查询历史详情失败: {e}", exc_info=True)
+            logger.error(f"Failed to query history details by ID: {e}", exc_info=True)
             return None
 
     def get_latest_fundamental_snapshot(
@@ -862,7 +868,7 @@ class HistoryService:
             return items
 
         except Exception as e:
-            logger.error(f"查询新闻情报失败: {e}", exc_info=True)
+            logger.error(f"Failed to query news intelligence: {e}", exc_info=True)
             return []
 
     def get_news_intel_by_record_id(self, record_id: int, limit: int = 20) -> List[Dict[str, str]]:
@@ -889,7 +895,7 @@ class HistoryService:
             return self.get_news_intel(query_id=record.query_id, limit=limit)
 
         except Exception as e:
-            logger.error(f"根据 record_id 查询新闻情报失败: {e}", exc_info=True)
+            logger.error(f"Failed to query news intelligence by record_id: {e}", exc_info=True)
             return []
 
     def _fallback_news_by_analysis_context(self, query_id: str, limit: int) -> List[Any]:
