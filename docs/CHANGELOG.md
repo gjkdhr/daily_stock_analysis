@@ -149,6 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [改进] 移除实验性 Codex App Server 问股后端及专属探针、取消与启动链；旧配置明确提示退役并可主动修正，保留默认 LiteLLM、会话接受事务及独立 Codex CLI 报告。
 - [修复] Agent 状态面板在缺少可用主模型时显示中英文配置指引，保留技术错误码；配置指南明确区分已移除后端与历史 Gate 记录。
 - [chore] Default new MiniMax channels to MiniMax-M3.1-Flash and MiniMax-M3, filter older text recommendations while retaining saved/custom models, and refresh fallback pricing.
+- [修复] 历史决策信号回填和重评估保存时，按报告生成当日的服务器时区偏移换算 UTC，修复跨夏令时回填导致的创建和到期时间偏移。
 - [测试] 经只读 MCP 服务 `McpReadOnlySurface.call_tool` 校验 `analyze_pattern` 四种长影线形态的 `type`，覆盖工具白名单、股票范围、脱敏与序列化环节。
 - [修复] Web 界面切换为 EN 后，首页策略选择器与问股页策略选择区改为显示英文的内置策略名称与说明；自定义或已覆盖的策略保留接口返回的原文，中文界面与发送给后端的策略 ID 不变（Refs #2649）。
 - [新功能] 大盘复盘结构化字段（Issue #1584）：复盘 Prompt 要求 LLM 在报告末尾输出 ```json 结构化附录，后端提取剥离后并入 payload，新增可选 `summary`（市场温度/状态/建议仓位/核心结论）、`indices[].comment`（指数一句话点评）、`breadth.divergence_diagnosis`（宽度与分化诊断，LLM 缺省时按指数-家数背离确定性兜底）、`style_rotation`（风格轮动信号）、`catalysts[]`（利好/利空、影响范围、持续性、是否已消化）、`next_day_plan`（明日观察清单/仓位建议/失效条件）及可选 `cross_market_note`（跨市场参考，P3）；解析失败或字段缺失逐字段降级为 null/省略，绝不中断复盘，旧 Markdown/历史/推送渲染零差异，不新增任何配置键；Web 大盘复盘视图对新增字段可选渲染（无字段时与旧版一致）。
